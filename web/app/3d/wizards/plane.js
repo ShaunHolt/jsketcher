@@ -19,7 +19,12 @@ export function PlaneWizard(app, initParams) {
     const face = this.app.viewer.selectionMgr.selection[0];
     if (face) {
       this.ui.relativeToFace.input.val(face.id);
+      this.updateLinkToFaceUI();
+      this.ui.linkedToFace.setChecked(true);
       this.synch();
+    } else {
+      this.ui.relativeToFace.input.val('');
+      this.updateLinkToFaceUI();
     }
   };
   app.bus.subscribe('selection', this.selectionListener);
@@ -30,7 +35,7 @@ export function PlaneWizard(app, initParams) {
 
 PlaneWizard.prototype = Object.create( Wizard.prototype );
 
-PlaneWizard.prototype.DEFAULT_PARAMS = ['XY', 0, ''];
+PlaneWizard.prototype.DEFAULT_PARAMS = ['XY', 0, '', true];
 
 PlaneWizard.prototype.title = function() {
   return "Add a Plane";
@@ -42,61 +47,86 @@ PlaneWizard.prototype.createPlane = function() {
   return new THREE.Mesh(geometry, material);
 };
 
-PlaneWizard.prototype.update = function(orientation, w, relativeToFaceId) {
+PlaneWizard.prototype.update = function(orientation, w, relativeToFaceId, linkedToFace) {
   if (relativeToFaceId != '') {
     const face = this.app.findFace(relativeToFaceId);
     const m = new THREE.Matrix4();
-    m.makeBasis.apply(m, face.basis());
+    const basis = face.basis();
+    m.makeBasis.apply(m, basis);
     const wVec = new THREE.Vector3(0, 0, w + face.depth());
     wVec.applyMatrix4(m); 
     m.setPosition(wVec);
     this.plane.matrix.identity();
     this.plane.applyMatrix(m);
-  } else if (orientation === 'XY') {
-    this.plane.rotation.x = 0;
-    this.plane.rotation.y = 0;
-    this.plane.rotation.z = 0;
-    this.plane.position.x = 0;
-    this.plane.position.y = 0;
-    this.plane.position.z = w;
-    this.operationParams.basis = IDENTITY_BASIS;
-  } else if (orientation === 'XZ') {
-    this.plane.rotation.x = Math.PI / 2;
-    this.plane.rotation.y = 0;
-    this.plane.rotation.z = 0;
-    this.plane.position.x = 0;
-    this.plane.position.y = w;
-    this.plane.position.z = 0;
-    this.operationParams.basis = [AXIS.X, AXIS.Z, AXIS.Y];
-  } else if (orientation === 'ZY') {
-    this.plane.rotation.x = 0;
-    this.plane.rotation.y = Math.PI / 2;
-    this.plane.rotation.z = 0;
-    this.plane.position.x = w;
-    this.plane.position.y = 0;
-    this.plane.position.z = 0;
-    this.operationParams.basis = [AXIS.Z, AXIS.Y, AXIS.X];
+    this.operationParams.basis = basis;
+    if (linkedToFace) {
+      this.operationParams.depth = w;
+      this.operationParams.relativeToFaceId = relativeToFaceId;
+    } else {
+      this.operationParams.depth =  w + face.depth();
+      this.operationParams.relativeToFaceId = '';
+    }
   } else {
-    throw orientation + " isn't supported yet";
+    this.operationParams.relativeToFaceId = '';
+    if (orientation === 'XY') {
+      this.plane.rotation.x = 0;
+      this.plane.rotation.y = 0;
+      this.plane.rotation.z = 0;
+      this.plane.position.x = 0;
+      this.plane.position.y = 0;
+      this.plane.position.z = w;
+      this.operationParams.basis = IDENTITY_BASIS;
+      this.operationParams.depth = w;
+    } else if (orientation === 'XZ') {
+      this.plane.rotation.x = Math.PI / 2;
+      this.plane.rotation.y = 0;
+      this.plane.rotation.z = 0;
+      this.plane.position.x = 0;
+      this.plane.position.y = w;
+      this.plane.position.z = 0;
+      this.operationParams.basis = [AXIS.X, AXIS.Z, AXIS.Y];
+      this.operationParams.depth = w;
+    } else if (orientation === 'ZY') {
+      this.plane.rotation.x = 0;
+      this.plane.rotation.y = Math.PI / 2;
+      this.plane.rotation.z = 0;
+      this.plane.position.x = w;
+      this.plane.position.y = 0;
+      this.plane.position.z = 0;
+      this.operationParams.basis = [AXIS.Z, AXIS.Y, AXIS.X];
+      this.operationParams.depth = w;
+    } else {
+      throw orientation + " isn't supported yet";
+    }
   }
-  this.operationParams.depth = w;
-  this.operationParams.relativeToFaceId = relativeToFaceId;
   this.viewer.render();
 };
 
-PlaneWizard.prototype.createUI = function(orientation, w, relativeToFaceId) {
+PlaneWizard.prototype.createUI = function(orientation, w, relativeToFaceId, linkedToFace) {
   const folder = this.ui.folder;
   const choice = ['XY', 'XZ', 'ZY'];
   this.ui.orientation = new tk.InlineRadio(choice, choice, choice.indexOf(orientation));
   this.ui.depth = new tk.Number("Depth", w);
   this.ui.relativeToFace = new tk.Text("Relative to Face", relativeToFaceId === undefined ? '' : relativeToFaceId);
+  this.ui.linkedToFace = new tk.CheckBox("Linked to Face", linkedToFace);
   tk.add(folder, this.ui.orientation);
-  tk.add(folder, this.ui.relativeToFace);
   tk.add(folder, this.ui.depth);
+  tk.add(folder, this.ui.relativeToFace);
+  tk.add(folder, this.ui.linkedToFace);
   
   var onChange = tk.methodRef(this, "synch");
   this.ui.orientation.root.find('input:radio').change(onChange);
   this.ui.depth.input.on('t-change', onChange);
+  this.ui.relativeToFace.input.on('input', () => this.updateLinkToFaceUI());
+  this.updateLinkToFaceUI();
+};
+
+PlaneWizard.prototype.updateLinkToFaceUI = function() {
+  if (this.ui.relativeToFace.input.val() != '') {
+    this.ui.linkedToFace.root.show();
+  } else {
+    this.ui.linkedToFace.root.hide();
+  }
 };
 
 PlaneWizard.prototype.synch = function() {
@@ -105,7 +135,8 @@ PlaneWizard.prototype.synch = function() {
 };
 
 PlaneWizard.prototype.getParams = function() {
-  return [this.ui.orientation.getValue(), parseFloat(this.ui.depth.input.val()), this.ui.relativeToFace.input.val()]
+  return [this.ui.orientation.getValue(), parseFloat(this.ui.depth.input.val()), 
+    this.ui.relativeToFace.input.val(), this.ui.linkedToFace.isChecked()]
 };
 
 PlaneWizard.prototype.createRequest = function(done) {

@@ -45,7 +45,13 @@ export function CheckBox(title, checked) {
     {'class': 'tc-row tc-ctrl'});
   this.root.append('<label><input type="checkbox">' + title + '</label>')
   this.input = this.root.find("input");
-  this.input.prop('checked', !!checked);
+  this.setChecked = (value) => {
+    this.input.prop('checked', !!value);  
+  };
+  this.isChecked = () => {
+    return this.input.is(':checked');
+  };
+  this.setChecked(checked);
 }
 
 export function InlineRadio(choiceLabels, choiceValues, checkedIndex) {
