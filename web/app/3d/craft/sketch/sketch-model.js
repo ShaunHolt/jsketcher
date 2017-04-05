@@ -154,6 +154,7 @@ export class Circle extends SketchPrimitive {
     for (var i = 0, angle = 0; i < k; ++i, angle += step) {
       points.push(new Point(c.x + r*Math.cos(angle), c.y + r*Math.sin(angle)));
     }
+    points.push(points[0]); // close it
     return points;
   }
 }
@@ -194,21 +195,26 @@ export class Contour {
       return _3dTransformation._apply(v);
     }
     
-    for (let segment of this.segments) {
+    let prev = null;
+    for (let segIdx = 0; segIdx < this.segments.length; ++segIdx) {
+      let segment = this.segments[segIdx];
       let approximation = segment.approximate(RESOLUTION);
       
       if (approxTr) {
         approximation = approxTr(approximation);
       }
       approximation = approximation.map(p => tr(p));
-      
+
       const n = approximation.length;
       if (segment instanceof Arc) {
         edges.push(new TrimmedCurve(approximation[0], approximation[n - 1], new ApproxCurve(approximation, segment)));
-      } else {  
-        
+      } else {
+        prev = prev == null ? approximation[0] : prev;
         for (let i = 1; i < n; ++i) {
-          edges.push(new TrimmedCurve(approximation[i-1], approximation[i], new Line.fromSegment(approximation[i-1], approximation[i]), segment));
+          const isLast = segIdx == this.segments.length - 1 && i == n - 1; 
+          const curr = isLast ? edges[0].a : approximation[i];
+          edges.push(new TrimmedCurve(prev, curr, new Line.fromSegment(prev, curr), segment));
+          prev = curr;
         }
       }
     }
@@ -219,11 +225,19 @@ export class Contour {
     const approximation = [];
     for (let segment of this.segments) {
       const segmentApproximation = segment.approximate(resolution);
-      segmentApproximation.forEach(sa => approximation.push(sa));
+      //skip last one cuz it's guaranteed to be closed
+      for (let i = 0; i < segmentApproximation.length - 2; ++i) {
+        approximation.push(segmentApproximation[i]);
+      }
     }
     return approximation;
   }
 
+  isCCW(surface) {
+    const tr = surface.get3DTransformation();
+    return this.approximate(10).map(p => tr(p));
+  }
+  
   reverse() {
     this.segments.reverse();
     this.segments.forEach(s => s.invert());

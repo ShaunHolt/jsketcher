@@ -143,31 +143,21 @@ export function linkHalfEdges(edge, halfEdge1, halfEdge2) {
 
 export function createLoopFromTrimmedCurve(segments) {
   const loop = new Loop();
-  for (let seg of segments) {
-    const halfEdge = createHalfEdge(loop, seg.a, seg.b);
+  const vertices = segments.map(s => new Vertex(s.a));
+  for (let i = 0; i < segments.length; ++i) {
+    let seg = segments[i];
+    const halfEdge = createHalfEdge(loop, vertices[i], vertices[(i + 1) % vertices.length]);
     halfEdge.edge = new Edge(seg.curve);
   }
   linkSegments(loop.halfEdges);
   return loop;
 }
 
-export function createPlaneLoop(vertices) {
-  
-  const loop = new Loop();
-  
-  iterateSegments(vertices, (a, b) => {
-    createHalfEdge(loop, a, b)
-  });
-
-  linkSegments(loop.halfEdges);
-  return loop;
-}
-
-export function createHalfEdge(loop, a, b) {
+export function createHalfEdge(loop, vertexA, vertexB) {
   const halfEdge = new HalfEdge();
   halfEdge.loop = loop;
-  halfEdge.vertexA = new Vertex(a);
-  halfEdge.vertexB = new Vertex(b);
+  halfEdge.vertexA = vertexA;
+  halfEdge.vertexB = vertexB;
   loop.halfEdges.push(halfEdge);
   return halfEdge;
 }

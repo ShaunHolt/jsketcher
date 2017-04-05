@@ -58,7 +58,7 @@ export class ExtrudePreviewer extends SketchBasedPreviewer {
     }
     const pe = new ParametricExtruder(params);
 
-    let baseSurface = face.surface;
+    let baseSurface = face.brepFace.surface;
     if (reverseNormal) {
       baseSurface = baseSurface.invert();
     }
@@ -70,16 +70,15 @@ export class ExtrudePreviewer extends SketchBasedPreviewer {
       //contour.reverse();
       const lid = contour.transferOnSurface(lidSurface, pe.getLidApproxTransformation(), pe.getLidPointTransformation());
       
-      
       const n = base.length;
-      for (let p = n - 1, q = 0; q < n; p = q ++) {
-        triangles.push([ base.a, base.b, lid.b ]);
-        triangles.push([ lid.b, lid.a, base.a ]);
+      for (let q = 0; q < n; q ++) {
+        //triangles.push([ base[q].a, base[q].b, lid[q].b ]);
+        //triangles.push([ lid[q].b, lid[q].a, base[q].a ]);
       }
-      TriangulatePolygons(base.map(t => t.a), baseSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
-        .forEach(tr => triangles.push(tr));
+      //TriangulatePolygons([base.map(t => t.a)], baseSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
+      //  .forEach(tr => triangles.push(tr));
       
-      TriangulatePolygons(lid.map(t => t.a), lidSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
+      TriangulatePolygons([lid.map(t => t.a)], lidSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
         .forEach(tr => triangles.push(tr));
     }
     return triangles;

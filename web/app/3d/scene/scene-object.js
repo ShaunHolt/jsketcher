@@ -124,7 +124,7 @@ export class SceneFace {
     const _3dTransformation = new Matrix3().setBasis(basis);
     //we lost depth or z off in 2d sketch, calculate it again
     const depth = this.depth();
-    const addSketchObjects = (sketchObjects, material) => {
+    const addSketchObjects = (sketchObjects, material, close) => {
       for (let sketchObject of sketchObjects) {
         let line = new THREE.Line(undefined, material);
         line.__TCAD_SketchObject = sketchObject;
@@ -139,15 +139,17 @@ export class SceneFace {
           lg.vertices.push(b._plus(OFF_LINES_VECTOR).three());
         }
         for (let q = 1; q < chunks.length; q ++) {
-          addLine(chunks[q - 1], q);
+          addLine(q - 1, q);
         }
-        addLine(chunks.length - 1, 0);
+        if (close) {
+          addLine(chunks.length - 1, 0);
+        }
         this.sketch3DGroup.add(line);
       }
     };
     addSketchObjects(geom.constructionSegments, SKETCH_CONSTRUCTION_MATERIAL);
     addSketchObjects(geom.connections, SKETCH_MATERIAL);
-    addSketchObjects(geom.loops, SKETCH_MATERIAL);
+    addSketchObjects(geom.loops, SKETCH_MATERIAL, true);
   }
 
   findById(sketchObjectId) {

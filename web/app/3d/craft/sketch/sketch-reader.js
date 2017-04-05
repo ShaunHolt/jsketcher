@@ -63,23 +63,30 @@ export function ReadSketchPoint(arr) {
   return new Vector(arr[1][1], arr[2][1], 0)
 }
 
-export function getSketchedPolygons3D(app, face, reverseGeom) {
+export function ReadSketchContoursFromFace(app, face, reverseGeom) {
   const savedFace = localStorage.getItem(app.faceStorageKey(face.id));
   if (savedFace == null) return null;
+  const surface = face.brepFace.surface;
   const geom = ReadSketch(JSON.parse(savedFace), face.id, false);
-  const sketchLoops = sketchToPaths(geom);
-  if (reverseGeom) {
-    sketchLoops.forEach(l => l.reverse());
+  const contours = findClosedContours(geom.connections);
+  for (let loop of geom.loops) {
+    contours.push(new sm.Contour(loop));
   }
-  return sketchLoops.map(loop => loop.transferOnSurface(face.surface));
+  for (let contour of contours) {
+    if (!contour.isCCW(surface)) contour.reverse();
+    if (reverseGeom) contour.reverse();
+  }
+  return contours;
 }
 
-export function sketchToPaths(geom) {
+export function getSketchedPolygons3D(app, face, reverseGeom) {
+  return ReadSketchContoursFromFace(app, face, reverseGeom).map(loop => loop.transferOnSurface(surface));
+}
+
+export function findClosedContours(segments) {
 
   const dict = HashTable.forVector2d();
   const edges = HashTable.forDoubleArray();
-
-  const segs = geom.connections;
 
   function edgeKey(a, b) {
     return [a.x, a.y, b.x, b.y];
@@ -96,7 +103,7 @@ export function sketchToPaths(geom) {
     dirs.push(b);
   }
 
-  for (let seg of segs) {
+  for (let seg of segments) {
     const a = seg.a;
     const b = seg.b;
 
@@ -135,21 +142,7 @@ export function sketchToPaths(geom) {
       }
       contour.add(edge);
     }
-
-    if (contour.segments.length >= 3) {
-      const approxPoints = contour.approximate(10).map(s => s.a);
-      if (!math.isCCW(approxPoints)) contour.reverse();
-      result.push(contour);
-    } else {
-      console.warn("Points count < 3!");
-    }
-  }
-  
-  for (let loop of geom.loops) {
-    const loopedCurve = new sm.Contour(loop);
-    const approxPoints = loopedCurve.approximate(10).map(s => s.a);
-    if (!math.isCCW(approxPoints)) loopedCurve.reverse();
-    result.push(loopedCurve);
+    result.push(contour);
   }
   return result;
 }
