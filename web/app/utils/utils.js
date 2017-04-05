@@ -67,6 +67,11 @@ export function camelCaseSplit(str) {
   return words;
 }
 
+export function defineIterable(obj, name, iteratorFactory) {
+  obj[name] = {};
+  obj[name][Symbol.iterator] = iteratorFactory;
+}
+
 export class DoubleKeyMap {
 
   constructor() {

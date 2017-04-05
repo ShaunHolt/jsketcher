@@ -29,13 +29,34 @@ export class HalfEdge extends TopoObject {
     this.prev = null;
   }
   
+  static create(a, b, loop, edge) {
+    const e = new HalfEdge().setAB(a, b);
+    e.loop = loop;
+    e.edge = edge;
+    return e;
+  }
+  
   setAB(a, b) {
     this.vertexA = a;
     this.vertexB = b;
+    return this;
   }
   
   twin() {
     return this.edge.halfEdge1 == this ? this.edge.halfEdge2 : this.edge.halfEdge1;
+  }
+
+  createTwin() {
+    const twin = new HalfEdge();
+    twin.vertexA = this.vertexB;
+    twin.vertexB = this.vertexA;
+    twin.edge = this.edge; 
+    if (this.edge.halfEdge1 == this) {
+      this.edge.halfEdge2 = twin;
+    }  else {
+      this.edge.halfEdge1 = twin;
+    }
+    return twin; 
   }
 
   split(vertex) {

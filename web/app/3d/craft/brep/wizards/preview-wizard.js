@@ -1,5 +1,5 @@
 import {Wizard} from './wizard'
-import {ReadSketchFromFace} from '../sketch-reader'
+import {ReadSketchFromFace} from '../../sketch/sketch-reader'
 import {Loop} from '../../../../brep/topo/loop'
 
 export class PreviewWizard extends Wizard {

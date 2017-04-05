@@ -4,11 +4,13 @@ import {Loop} from './topo/loop'
 import {Face} from './topo/face'
 import {HalfEdge, Edge} from './topo/edge'
 import {Line} from './geom/impl/line'
+import {ApproxCurve, ApproxSurface} from './geom/impl/approx'
 import {Plane} from './geom/impl/plane'
 import {Point} from './geom/point'
 import {BasisForPlane, Matrix3} from '../math/l3space'
 import * as cad_utils from '../3d/cad-utils'
 import * as math from '../math/math'
+import {Segment, Contour} from '../3d/craft/sketch/sketch-model'
 
 function isCCW(points, normal) {
   const tr2d = new Matrix3().setBasis(BasisForPlane(normal)).invert();
@@ -25,64 +27,61 @@ function checkCCW(points, normal) {
 }
 
 export function createPrism(basePoints, height) {
-  return new SimpleExtruder(height).extrude(basePoints, cad_utils.normalOfCCWSeq(basePoints));
+  const normal = cad_utils.normalOfCCWSeq(basePoints);
+  const baseSurface = new Plane(normal, normal.dot(basePoints[0]));
+  const contour = new Contour();
+  iterateSegments(basePoints, (a, b) => contour.segments.push(new Segment(null, a, b)));
+  return new SimpleExtruder(height).extrude(contour, baseSurface);
 }
 
-export class Extruder { 
-  
-  prepareLidCalculation(baseNormal, lidNormal) {
-  }
-  
-  calculateLid(basePoints) {
+export class Extruder {
+
+  getLidSurface(baseSurface) {
     throw 'not implemented';
   }
-  
-  extrude(basePoints, normal) {
-    const baseLoop = createPlaneLoop(basePoints.map(p => new Vertex(p)));
-    const baseFace = createPlaneFace(normal, baseLoop);
-    const lidNormal = normal.multiply(-1);
 
-    this.prepareLidCalculation(normal, lidNormal);
+  getLidPointTransformation() {
+    throw 'not implemented';
+  }
 
-    //iterateSegments(basePoints.map(p => new Vertex(p.plus(offVector))), (a, b) => lidSegments.push({a, b}));
-    const lidPoints = this.calculateLid(basePoints, normal, lidNormal).reverse();
-    const lidLoop = createPlaneLoop(lidPoints.map(p => new Vertex(p)));
+  getLidApproxTransformation() {
+    return (a) => a; 
+  }
   
+  extrude(contour, baseSurface) {
+
+    const baseLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(baseSurface));
+    const baseFace = createFace(baseSurface, baseLoop);
+    const lidSurface = this.getLidSurface(baseSurface);
+    
+    //contour.reverse();
+    const lidLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(lidSurface, 
+      this.getLidApproxTransformation(), this.getLidPointTransformation()));
+
+    //contour.reverse();
+    
     const shell = new Shell();
   
     const n = baseLoop.halfEdges.length;
     for (let i = 0; i < n; i++) {
-      let lidIdx = n - 2 - i;
-      if (lidIdx == -1) {
-        lidIdx = n - 1;
+      let lidIdx = n - i;
+      if (lidIdx == n) {
+        lidIdx = 0;
       }
       const baseHalfEdge = baseLoop.halfEdges[i];
       const lidHalfEdge = lidLoop.halfEdges[lidIdx];
-      const wallPolygon = [baseHalfEdge.vertexB, baseHalfEdge.vertexA, lidHalfEdge.vertexB, lidHalfEdge.vertexA];
-      const wallLoop = createPlaneLoop(wallPolygon);
-  
-      const baseEdge = new Edge(Line.fromSegment(baseHalfEdge.vertexA.point, baseHalfEdge.vertexB.point));
-      linkHalfEdges(baseEdge, baseHalfEdge, wallLoop.halfEdges[0]);
-      
-      const lidEdge = new Edge(Line.fromSegment(lidHalfEdge.vertexA.point, lidHalfEdge.vertexB.point));
-      linkHalfEdges(lidEdge, lidHalfEdge, wallLoop.halfEdges[2]);
-  
-      const wallNormal = cad_utils.normalOfCCWSeq(wallPolygon.map(v => v.point));
-      
-      const wallFace = createPlaneFace(wallNormal, wallLoop);
+      const wallFace = createFaceFromTwoEdges(baseHalfEdge.createTwin(), lidHalfEdge.createTwin(), false, true);
       wallFace.role = 'wall:' + i;
       this.onWallCallback(wallFace, baseHalfEdge);
-      
       shell.faces.push(wallFace);
     }
-    const lidFace = createPlaneFace(lidNormal, lidLoop);
     iterateSegments(shell.faces, (a, b) => {
       const halfEdgeA = a.outerLoop.halfEdges[3];
       const halfEdgeB = b.outerLoop.halfEdges[1];
-      const curve = Line.fromSegment(halfEdgeA.vertexA.point, halfEdgeA.vertexB.point);
-      linkHalfEdges(new Edge(curve), halfEdgeA, halfEdgeB);
+      halfEdgeA.edge = halfEdgeB.edge; 
     });
-  
+    
+    const lidFace = createFace(lidSurface, lidLoop);
     baseFace.role = 'base';
     lidFace.role = 'lid';
     
@@ -102,18 +101,32 @@ export class SimpleExtruder extends Extruder {
     this.height = height;
   }
 
-  prepareLidCalculation(baseNormal, lidNormal) {
-    this.extrudeVector = lidNormal.multiply(this.height);
+  getLidSurface(baseSurface) {
+    this.extrudeVector = baseSurface.normal.multiply( - this.height);
+    return baseSurface.move(this.extrudeVector).invert();
   }
 
-  calculateLid(basePoints) {
-    return basePoints.map(p => p.plus(this.extrudeVector))
+  getLidPointTransformation() {
+    return (p) => p.plus(this.extrudeVector);
   }
 }
 
-function createPlaneFace(normal, loop) {
+function createFace(surface, loop) {
+  const face = new Face(surface);
+  face.outerLoop = loop;
+  loop.face = face;
+  return face;
+}
+
+
+function createPlaneForLoop(normal, loop) {
   const w = loop.halfEdges[0].vertexA.point.dot(normal);
   const plane = new Plane(normal, w);
+  return plane;
+}
+
+function createPlaneFace(normal, loop) {
+  const plane = createPlaneForLoop();
   const face = new Face(plane);
   face.outerLoop = loop;
   loop.face = face;
@@ -126,6 +139,16 @@ export function linkHalfEdges(edge, halfEdge1, halfEdge2) {
   halfEdge2.edge = edge;
   edge.halfEdge1 = halfEdge1;
   edge.halfEdge2 = halfEdge2;
+}
+
+export function createLoopFromTrimmedCurve(segments) {
+  const loop = new Loop();
+  for (let seg of segments) {
+    const halfEdge = createHalfEdge(loop, seg.a, seg.b);
+    halfEdge.edge = new Edge(seg.curve);
+  }
+  linkSegments(loop.halfEdges);
+  return loop;
 }
 
 export function createPlaneLoop(vertices) {
@@ -143,8 +166,8 @@ export function createPlaneLoop(vertices) {
 export function createHalfEdge(loop, a, b) {
   const halfEdge = new HalfEdge();
   halfEdge.loop = loop;
-  halfEdge.vertexA = a;
-  halfEdge.vertexB = b;
+  halfEdge.vertexA = new Vertex(a);
+  halfEdge.vertexB = new Vertex(b);
   loop.halfEdges.push(halfEdge);
   return halfEdge;
 }
@@ -176,4 +199,39 @@ export function invertLoop(loop) {
   }
   loop.halfEdges.reverse();
   linkSegments(loop.halfEdges);
+}
+
+export function createFaceFromTwoEdges(e1, e2, createLeftEdge, createRightEdge) {
+  const loop = new Loop();
+  loop.halfEdges.push(
+    e1,
+    HalfEdge.create(e1.vertexB,  e2.vertexA, loop, createRightEdge ? new Edge(Line.fromSegment(e1.vertexB.point,  e2.vertexB.point)) : null),
+    e2,
+    HalfEdge.create(e2.vertexB,  e1.vertexA, loop, createLeftEdge ? new Edge(Line.fromSegment(e2.vertexA.point,  e1.vertexA.point)) : null));
+  
+  let surface = null;
+  if (e1.edge.curve.constructor.name == 'Line' && 
+      e2.edge.curve.constructor.name == 'Line') {
+    const normal = cad_utils.normalOfCCWSeq(loop.halfEdges.map(e => e.vertexA.point));
+    surface = createPlaneForLoop(normal, loop);
+  } else if ((e1.edge.curve instanceof ApproxCurve) && (e2.edge.curve instanceof ApproxCurve)) {
+    const chunk1 = e1.edge.curve.getChunk(e1.edge.vertexA.point, e1.edge.vertexB.point);
+    const chunk2 = e2.edge.curve.getChunk(e2.edge.vertexA.point, e2.edge.vertexB.point);
+    const n = chunk1.length;
+    if (n != chunk2.length) {
+      throw 'unsupported';
+    }
+    surface = new ApproxSurface();
+    for (let p = n - 1, q = 0; q < n; p = q ++) {
+      const polygon = [ chunk1[p], chunk1[q], chunk2[q], chunk2[p] ];
+      surface.mesh.push(polygon);
+    }
+  } else {
+    throw 'unsupported';
+  }
+
+  const face = new Face(surface);
+  face.outerLoop = loop;
+  loop.face = face;
+  return face;
 }

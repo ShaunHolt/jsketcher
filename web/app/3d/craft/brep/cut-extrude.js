@@ -7,7 +7,8 @@ import * as stitching from '../../../brep/stitching'
 import {subtract, union} from '../../../brep/operations/boolean'
 import {Loop} from '../../../brep/topo/loop'
 import {Shell} from '../../../brep/topo/shell'
-import {ReadSketchFromFace} from './sketch-reader'
+import {ReadSketchFromFace} from '../sketch/sketch-reader'
+import {Segment} from '../sketch/sketch-model'
 import {isCurveClass} from '../../cad-utils'
 
 import {BREPSceneSolid} from '../../scene/brep-scene-object'
@@ -83,9 +84,10 @@ export class ParametricExtruder extends Extruder {
     this.params = params;
   }
   
-  prepareLidCalculation(baseNormal, lidNormal) {
+  getLidSurface(baseSurface) {
     let target;
-    this.basis = BasisForPlane(baseNormal);
+    this.basis = baseSurface.basis();
+    const lidNormal = baseSurface.normal.negate();
     if (this.params.rotation != 0) {
       target = Matrix3.rotateMatrix(this.params.rotation * Math.PI / 180, this.basis[0], ORIGIN).apply(lidNormal);
       if (this.params.angle != 0) {
@@ -96,27 +98,27 @@ export class ParametricExtruder extends Extruder {
       target = lidNormal.multiply(Math.abs(this.params.value));
     }
     this.target = target;
+    return baseSurface.move(target).invert();
   }
-
-  calculateLid(basePoints, baseNormal, lidNormal) {
+  
+  getLidPointTransformation() {
+    return p => p.plus(this.target);
+  }
+  
+  getLidApproxTransformation() {
     if (this.params.prism != 1) {
-      const scale = this.params.prism;
-      
-      const _3Dtr = new Matrix3().setBasis(this.basis);
-      const _2Dtr = _3Dtr.invert();
-      const poly2d = basePoints.map(p => _2Dtr.apply(p));
-      basePoints = math.polygonOffset(poly2d, scale).map(p => _3Dtr.apply(p));
+      return a => math.polygonOffset(a, this.params.prism);
     }
-    return basePoints.map(p => p.plus(this.target));
+    return a => a;
   }
 
-  onWallCallback(wallFace, baseHalfEdge) {
-    const conn = baseHalfEdge.vertexA.point.sketchConnectionObject;
-    if (conn && isCurveClass(conn._class)) {
-      if (!conn.stitchedSurface) {
-        conn.stitchedSurface = new stitching.StitchedSurface();
+  onWallCallback(wallFace, baseTrimmedCurve, lidTrimmedCurve) {
+    const group = baseTrimmedCurve.group;
+    if (group && group instanceof Segment) {
+      if (!group.stitchedSurface) {
+        group.stitchedSurface = new stitching.StitchedSurface();
       }
-      conn.stitchedSurface.addFace(wallFace);
+      group.stitchedSurface.addFace(wallFace);
     }
   }
 }
