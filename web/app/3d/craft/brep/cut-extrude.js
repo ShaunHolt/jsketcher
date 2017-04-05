@@ -7,7 +7,7 @@ import * as stitching from '../../../brep/stitching'
 import {subtract, union} from '../../../brep/operations/boolean'
 import {Loop} from '../../../brep/topo/loop'
 import {Shell} from '../../../brep/topo/shell'
-import {ReadSketchFromFace} from '../sketch/sketch-reader'
+import {ReadSketchContoursFromFace} from '../sketch/sketch-reader'
 import {Segment} from '../sketch/sketch-model'
 import {isCurveClass} from '../../cad-utils'
 
@@ -24,36 +24,34 @@ export function Cut(app, params) {
 export function doOperation(app, params, cut) {
   const face = app.findFace(params.face);
   const solid = face.solid;
-  let reverseNormal = !cut;
+  let reverse = !cut;
   
-  let normal = face.normal();
   if (params.value < 0) {
     params = fixNegativeValue(params);
-    reverseNormal = !reverseNormal;
+    reverse = !reverse;
   }
 
-  if (reverseNormal) normal = normal.negate();
-  const sketch = ReadSketchFromFace(app, face, reverseNormal);
+  const sketch = ReadSketchContoursFromFace(app, face);
   
   const extruder = new ParametricExtruder(params);
-  const operand = combineShells(sketch.map(s => extruder.extrude(s, normal)));
+  const operand = combineShells(sketch.map(s => extruder.extrude(s, face.brepFace.surface, reverse)));
   BREPValidator.validateToConsole(operand);
 
-  let result;
-  if (solid instanceof BREPSceneSolid) {
-    const op = cut ? subtract : union;
-    result = op(solid.shell, operand);
-    for (let newFace of result.faces) {
-      if (newFace.id == face.id) {
-        newFace.id = undefined;
-      }
-    }
-  } else {
-    if (cut) throw 'unable to cut plane';
-    result = operand;
-  }
-  stitching.update(result);
-  const newSolid = new BREPSceneSolid(result);
+  //let result;
+  //if (solid instanceof BREPSceneSolid) {
+  //  const op = cut ? subtract : union;
+  //  result = op(solid.shell, operand);
+  //  for (let newFace of result.faces) {
+  //    if (newFace.id == face.id) {
+  //      newFace.id = undefined;
+  //    }
+  //  }
+  //} else {
+  //  if (cut) throw 'unable to cut plane';
+  //  result = operand;
+  //}
+  //stitching.update(result);
+  const newSolid = new BREPSceneSolid(operand);
   return {
     outdated: [solid],
     created:  [newSolid]
@@ -105,13 +103,6 @@ export class ParametricExtruder extends Extruder {
     return p => p.plus(this.target);
   }
   
-  getLidApproxTransformation() {
-    if (this.params.prism != 1) {
-      return a => math.polygonOffset(a, this.params.prism);
-    }
-    return a => a;
-  }
-
   onWallCallback(wallFace, baseTrimmedCurve, lidTrimmedCurve) {
     const group = baseTrimmedCurve.group;
     if (group && group instanceof Segment) {

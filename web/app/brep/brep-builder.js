@@ -44,41 +44,36 @@ export class Extruder {
     throw 'not implemented';
   }
 
-  getLidApproxTransformation() {
-    return (a) => a; 
-  }
-  
-  extrude(contour, baseSurface) {
+  extrude(contour, baseSurface, reverse) {
 
+    if (reverse) contour.reverse(); 
     const baseLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(baseSurface));
+    if (reverse) contour.reverse();
+    if (reverse) baseSurface = baseSurface.invert();
     const baseFace = createFace(baseSurface, baseLoop);
     const lidSurface = this.getLidSurface(baseSurface);
     
-    //contour.reverse();
-    const lidLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(lidSurface, 
-      this.getLidApproxTransformation(), this.getLidPointTransformation()));
-
-    //contour.reverse();
+    contour.reverse();
+    const lidLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(baseSurface, null, this.getLidPointTransformation()));
+    contour.reverse();
     
     const shell = new Shell();
   
     const n = baseLoop.halfEdges.length;
     for (let i = 0; i < n; i++) {
-      let lidIdx = n - i;
-      if (lidIdx == n) {
-        lidIdx = 0;
-      }
+      let lidIdx = n - 1 - i;
       const baseHalfEdge = baseLoop.halfEdges[i];
       const lidHalfEdge = lidLoop.halfEdges[lidIdx];
-      const wallFace = createFaceFromTwoEdges(baseHalfEdge.createTwin(), lidHalfEdge.createTwin(), false, true);
+      const wallFace = createFaceFromTwoEdges(baseHalfEdge.createTwin(), lidHalfEdge.createTwin());
       wallFace.role = 'wall:' + i;
       this.onWallCallback(wallFace, baseHalfEdge);
       shell.faces.push(wallFace);
+      linkSegments(wallFace.outerLoop.halfEdges);
     }
     iterateSegments(shell.faces, (a, b) => {
       const halfEdgeA = a.outerLoop.halfEdges[3];
       const halfEdgeB = b.outerLoop.halfEdges[1];
-      halfEdgeA.edge = halfEdgeB.edge; 
+      linkHalfEdges(new Edge(Line.fromSegment(halfEdgeA.vertexA.point,  halfEdgeA.vertexB.point)), halfEdgeA, halfEdgeB);
     });
     
     const lidFace = createFace(lidSurface, lidLoop);
@@ -148,6 +143,7 @@ export function createLoopFromTrimmedCurve(segments) {
     let seg = segments[i];
     const halfEdge = createHalfEdge(loop, vertices[i], vertices[(i + 1) % vertices.length]);
     halfEdge.edge = new Edge(seg.curve);
+    halfEdge.edge.halfEdge1 = halfEdge; 
   }
   linkSegments(loop.halfEdges);
   return loop;
@@ -191,13 +187,15 @@ export function invertLoop(loop) {
   linkSegments(loop.halfEdges);
 }
 
-export function createFaceFromTwoEdges(e1, e2, createLeftEdge, createRightEdge) {
+export function createFaceFromTwoEdges(e1, e2) {
   const loop = new Loop();
+  e1.loop = loop;
+  e2.loop = loop;
   loop.halfEdges.push(
     e1,
-    HalfEdge.create(e1.vertexB,  e2.vertexA, loop, createRightEdge ? new Edge(Line.fromSegment(e1.vertexB.point,  e2.vertexB.point)) : null),
+    HalfEdge.create(e1.vertexB,  e2.vertexA, loop),
     e2,
-    HalfEdge.create(e2.vertexB,  e1.vertexA, loop, createLeftEdge ? new Edge(Line.fromSegment(e2.vertexA.point,  e1.vertexA.point)) : null));
+    HalfEdge.create(e2.vertexB,  e1.vertexA, loop));
   
   let surface = null;
   if (e1.edge.curve.constructor.name == 'Line' && 

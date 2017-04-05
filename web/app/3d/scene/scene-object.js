@@ -141,15 +141,12 @@ export class SceneFace {
         for (let q = 1; q < chunks.length; q ++) {
           addLine(q - 1, q);
         }
-        if (close) {
-          addLine(chunks.length - 1, 0);
-        }
         this.sketch3DGroup.add(line);
       }
     };
     addSketchObjects(geom.constructionSegments, SKETCH_CONSTRUCTION_MATERIAL);
     addSketchObjects(geom.connections, SKETCH_MATERIAL);
-    addSketchObjects(geom.loops, SKETCH_MATERIAL, true);
+    addSketchObjects(geom.loops, SKETCH_MATERIAL);
   }
 
   findById(sketchObjectId) {

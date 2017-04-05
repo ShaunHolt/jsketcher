@@ -3,6 +3,8 @@ import {PreviewWizard, SketchBasedPreviewer} from './preview-wizard'
 import {ParametricExtruder, fixNegativeValue} from '../cut-extrude'
 import {TriangulatePolygons} from '../../../triangulation'
 import Vector from '../../../../math/vector'
+import {reversedIndex} from '../../../../utils/utils'
+
 
 const METADATA = [
   ['value'   , 'number',  50],
@@ -50,8 +52,7 @@ export class ExtrudePreviewer extends SketchBasedPreviewer {
   }
   
   createImpl(app, params, sketch, face) {
-    const normal = face.normal();
-    let reverseNormal = this.inversed;
+    let reverseNormal = !this.inversed;
     if (params.value < 0) {
       params = fixNegativeValue(params);
       reverseNormal = !reverseNormal;
@@ -66,17 +67,22 @@ export class ExtrudePreviewer extends SketchBasedPreviewer {
     const triangles = [];
     for (let contour of sketch) {
 
-      const base = contour.transferOnSurface(baseSurface);
-      //contour.reverse();
-      const lid = contour.transferOnSurface(lidSurface, pe.getLidApproxTransformation(), pe.getLidPointTransformation());
+      if (reverseNormal) contour.reverse();
+      
+      const base = contour.transferOnSurface(face.brepFace.surface);
+      contour.reverse();
+      const lid = contour.transferOnSurface(face.brepFace.surface, null, pe.getLidPointTransformation());
+      
+      if (!reverseNormal) contour.reverse();
       
       const n = base.length;
-      for (let q = 0; q < n; q ++) {
-        //triangles.push([ base[q].a, base[q].b, lid[q].b ]);
-        //triangles.push([ lid[q].b, lid[q].a, base[q].a ]);
+      for (let b = 0; b < n; b ++) {
+        const l = reversedIndex(b, n);
+        triangles.push([ base[b].a, base[b].b, lid[l].a ]);
+        triangles.push([ lid[l].a, lid[l].b, base[b].a ]);
       }
-      //TriangulatePolygons([base.map(t => t.a)], baseSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
-      //  .forEach(tr => triangles.push(tr));
+      TriangulatePolygons([base.map(t => t.a)], baseSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
+        .forEach(tr => triangles.push(tr));
       
       TriangulatePolygons([lid.map(t => t.a)], lidSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
         .forEach(tr => triangles.push(tr));

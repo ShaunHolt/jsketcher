@@ -182,17 +182,17 @@ export class Contour {
     this.segments.push(obj);
   }
   
-  transferOnSurface(surface, approxTr, pointTr) {
+  transferOnSurface(surface, tr2d, tr3d) {
     const edges = [];
     
     const _3dTransformation = surface.get3DTransformation();
     const depth = surface.w;
     function tr(v) {
-      if (pointTr) {
-        v = pointTr(v);
-      }
+      if (tr2d) v = tr2d(v);
       v.z = depth;
-      return _3dTransformation._apply(v);
+      v = _3dTransformation.apply(v);
+      if (tr3d) v = tr3d(v);
+      return v;
     }
     
     let prev = null;
@@ -200,13 +200,10 @@ export class Contour {
       let segment = this.segments[segIdx];
       let approximation = segment.approximate(RESOLUTION);
       
-      if (approxTr) {
-        approximation = approxTr(approximation);
-      }
       approximation = approximation.map(p => tr(p));
 
       const n = approximation.length;
-      if (segment instanceof Arc) {
+      if (segment.constructor.name == 'Arc') {
         edges.push(new TrimmedCurve(approximation[0], approximation[n - 1], new ApproxCurve(approximation, segment)));
       } else {
         prev = prev == null ? approximation[0] : prev;

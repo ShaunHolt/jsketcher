@@ -5,10 +5,6 @@ import {Graph} from '../../../math/graph'
 import * as math from '../../../math/math'
 import {HashTable} from '../../../utils/hashmap'
 
-export function ReadSketchFromFace(app, face, reverseGeom) {
-  return getSketchedPolygons3D(app, face, reverseGeom);
-}
-
 export function ReadSketch(sketch, faceId, readConstructionSegments) {
   let idCounter = 0;
   function genID() {
@@ -63,7 +59,7 @@ export function ReadSketchPoint(arr) {
   return new Vector(arr[1][1], arr[2][1], 0)
 }
 
-export function ReadSketchContoursFromFace(app, face, reverseGeom) {
+export function ReadSketchContoursFromFace(app, face) {
   const savedFace = localStorage.getItem(app.faceStorageKey(face.id));
   if (savedFace == null) return null;
   const surface = face.brepFace.surface;
@@ -74,13 +70,8 @@ export function ReadSketchContoursFromFace(app, face, reverseGeom) {
   }
   for (let contour of contours) {
     if (!contour.isCCW(surface)) contour.reverse();
-    if (reverseGeom) contour.reverse();
   }
   return contours;
-}
-
-export function getSketchedPolygons3D(app, face, reverseGeom) {
-  return ReadSketchContoursFromFace(app, face, reverseGeom).map(loop => loop.transferOnSurface(surface));
 }
 
 export function findClosedContours(segments) {

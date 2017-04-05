@@ -104,3 +104,11 @@ export class DoubleKeyMap {
     subMap.set(b, value);
   }
 }
+
+export function reversedIndex(i, n) {
+  let lidIdx = n - i;
+  if (lidIdx == n) {
+    lidIdx = 0;
+  }
+  return lidIdx;
+}
