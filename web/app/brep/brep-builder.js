@@ -8,9 +8,9 @@ import {ApproxCurve, ApproxSurface} from './geom/impl/approx'
 import {Plane} from './geom/impl/plane'
 import {Point} from './geom/point'
 import {BasisForPlane, Matrix3} from '../math/l3space'
+import {CompositeCurve} from './geom/curve' 
 import * as cad_utils from '../3d/cad-utils'
 import * as math from '../math/math'
-import {Segment, Contour} from '../3d/craft/sketch/sketch-model'
 
 function isCCW(points, normal) {
   const tr2d = new Matrix3().setBasis(BasisForPlane(normal)).invert();
@@ -29,81 +29,91 @@ function checkCCW(points, normal) {
 export function createPrism(basePoints, height) {
   const normal = cad_utils.normalOfCCWSeq(basePoints);
   const baseSurface = new Plane(normal, normal.dot(basePoints[0]));
-  const contour = new Contour();
-  iterateSegments(basePoints, (a, b) => contour.segments.push(new Segment(null, a, b)));
-  return new SimpleExtruder(height).extrude(contour, baseSurface);
+  const extrudeVector = baseSurface.normal.multiply( - height);
+  const lidSurface = baseSurface.translate(extrudeVector).invert();
+  const lidPoints = basePoints.map(p => p.plus(extrudeVector));
+  const basePath = new CompositeCurve();
+  const lidPath = new CompositeCurve();
+  
+  for (let i = 0; i < basePoints.length; i++) {
+    let j = (i + 1) % basePoints.length;
+    basePath.add(Line.fromSegment(basePoints[i], basePoints[j]), basePoints[i], null);
+    lidPath.add(Line.fromSegment(lidPoints[i], lidPoints[j]), lidPoints[i], null);
+  }
+  return enclose(basePath, lidPath, baseSurface, lidSurface, () => {});
 }
 
-export class Extruder {
 
-  getLidSurface(baseSurface) {
-    throw 'not implemented';
+export function enclose(basePath, lidPath, baseSurface, lidSurface, onWallF) {
+
+  if (basePath.points.length != lidPath.points.length) {
+    throw 'illegal arguments';
   }
 
-  getLidPointTransformation() {
-    throw 'not implemented';
-  }
-
-  extrude(contour, baseSurface, reverse) {
-
-    if (reverse) contour.reverse(); 
-    const baseLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(baseSurface));
-    if (reverse) contour.reverse();
-    if (reverse) baseSurface = baseSurface.invert();
-    const baseFace = createFace(baseSurface, baseLoop);
-    const lidSurface = this.getLidSurface(baseSurface);
-    
-    contour.reverse();
-    const lidLoop = createLoopFromTrimmedCurve(contour.transferOnSurface(baseSurface, null, this.getLidPointTransformation()));
-    contour.reverse();
-    
-    const shell = new Shell();
+  const baseLoop = new Loop();
+  const lidLoop = new Loop();
   
-    const n = baseLoop.halfEdges.length;
-    for (let i = 0; i < n; i++) {
-      let lidIdx = n - 1 - i;
-      const baseHalfEdge = baseLoop.halfEdges[i];
-      const lidHalfEdge = lidLoop.halfEdges[lidIdx];
-      const wallFace = createFaceFromTwoEdges(baseHalfEdge.createTwin(), lidHalfEdge.createTwin());
-      wallFace.role = 'wall:' + i;
-      this.onWallCallback(wallFace, baseHalfEdge);
-      shell.faces.push(wallFace);
-      linkSegments(wallFace.outerLoop.halfEdges);
-    }
-    iterateSegments(shell.faces, (a, b) => {
-      const halfEdgeA = a.outerLoop.halfEdges[3];
-      const halfEdgeB = b.outerLoop.halfEdges[1];
-      linkHalfEdges(new Edge(Line.fromSegment(halfEdgeA.vertexA.point,  halfEdgeA.vertexB.point)), halfEdgeA, halfEdgeB);
-    });
+  const shell = new Shell();
+  const baseVertices = basePath.points.map(p => new Vertex(p));
+  const lidVertices = lidPath.points.map(p => new Vertex(p));
+  
+  const n = basePath.points.length;
+  for (let i = 0; i < n; i++) {
+    let j = (i + 1) % n;
+    const baseHalfEdge = new HalfEdge().setAB(baseVertices[i], baseVertices[j]);
+    const lidHalfEdge = new HalfEdge().setAB(lidVertices[j], lidVertices[i]);
     
-    const lidFace = createFace(lidSurface, lidLoop);
-    baseFace.role = 'base';
-    lidFace.role = 'lid';
-    
-    shell.faces.push(baseFace, lidFace);
-    shell.faces.forEach(f => f.shell = shell);
-    return shell;
-  }
+    baseHalfEdge.edge = new Edge(basePath.curves[i]);
+    lidHalfEdge.edge = new Edge(lidPath.curves[i]);
 
-  onWallCallback(wallFace, baseHalfEdge) {
+    baseHalfEdge.edge.halfEdge1 = baseHalfEdge;
+    lidHalfEdge.edge.halfEdge1 = lidHalfEdge;
+
+
+    baseHalfEdge.loop = baseLoop;
+    baseLoop.halfEdges.push(baseHalfEdge);
+
+    lidHalfEdge.loop = lidLoop;
+    lidLoop.halfEdges[(n + n - 2 - i) % n] = lidHalfEdge; // keep old style order for the unit tests
+
+    const wallFace = createFaceFromTwoEdges(createTwin(baseHalfEdge), createTwin(lidHalfEdge));
+    
+    wallFace.role = 'wall:' + i;
+    onWallF(wallFace, basePath.groups[i]);
+    shell.faces.push(wallFace);
   }
+  
+  iterateSegments(shell.faces, (a, b) => {
+    const halfEdgeA = a.outerLoop.halfEdges[3];
+    const halfEdgeB = b.outerLoop.halfEdges[1];
+    const curve = Line.fromSegment(halfEdgeA.vertexA.point, halfEdgeA.vertexB.point);
+    linkHalfEdges(new Edge(curve), halfEdgeA, halfEdgeB);
+  });
+
+  linkSegments(baseLoop.halfEdges);
+  linkSegments(lidLoop.halfEdges);
+  
+  const baseFace = createFace(baseSurface, baseLoop);
+  const lidFace = createFace(lidSurface, lidLoop);
+  baseFace.role = 'base';
+  lidFace.role = 'lid';
+
+  shell.faces.push(baseFace, lidFace);
+  shell.faces.forEach(f => f.shell = shell);
+  return shell;
 }
 
-export class SimpleExtruder extends Extruder {
-  
-  constructor(height) {
-    super();
-    this.height = height;
+function createTwin(halfEdge) {
+  const twin = new HalfEdge();
+  twin.vertexA = halfEdge.vertexB;
+  twin.vertexB = halfEdge.vertexA;
+  twin.edge = halfEdge.edge;
+  if (halfEdge.edge.halfEdge1 == halfEdge) {
+    halfEdge.edge.halfEdge2 = twin;
+  }  else {
+    halfEdge.edge.halfEdge1 = twin;
   }
-
-  getLidSurface(baseSurface) {
-    this.extrudeVector = baseSurface.normal.multiply( - this.height);
-    return baseSurface.move(this.extrudeVector).invert();
-  }
-
-  getLidPointTransformation() {
-    return (p) => p.plus(this.extrudeVector);
-  }
+  return twin;
 }
 
 function createFace(surface, loop) {
@@ -136,14 +146,16 @@ export function linkHalfEdges(edge, halfEdge1, halfEdge2) {
   edge.halfEdge2 = halfEdge2;
 }
 
-export function createLoopFromTrimmedCurve(segments) {
+export function createLoopFromCompositeCurve(path) { // TODO: REMOVE!
   const loop = new Loop();
-  const vertices = segments.map(s => new Vertex(s.a));
-  for (let i = 0; i < segments.length; ++i) {
-    let seg = segments[i];
-    const halfEdge = createHalfEdge(loop, vertices[i], vertices[(i + 1) % vertices.length]);
+  const vertices = [];
+  for (let seg of path) {
+    vertices[seg.pos] = new Vertex(s.pointA);
+  }
+  for (let seg of path) {
+    const halfEdge = createHalfEdge(loop, vertices[seg.pos], vertices[seg.posNext]);
     halfEdge.edge = new Edge(seg.curve);
-    halfEdge.edge.halfEdge1 = halfEdge; 
+    halfEdge.edge.halfEdge1 = halfEdge;
   }
   linkSegments(loop.halfEdges);
   return loop;
@@ -187,6 +199,18 @@ export function invertLoop(loop) {
   linkSegments(loop.halfEdges);
 }
 
+export function createPlaneLoop(vertices) {
+
+  const loop = new Loop();
+
+  iterateSegments(vertices, (a, b) => {
+    createHalfEdge(loop, a, b)
+  });
+
+  linkSegments(loop.halfEdges);
+  return loop;
+}
+
 export function createFaceFromTwoEdges(e1, e2) {
   const loop = new Loop();
   e1.loop = loop;
@@ -218,6 +242,8 @@ export function createFaceFromTwoEdges(e1, e2) {
     throw 'unsupported';
   }
 
+  linkSegments(loop.halfEdges);
+  
   const face = new Face(surface);
   face.outerLoop = loop;
   loop.face = face;

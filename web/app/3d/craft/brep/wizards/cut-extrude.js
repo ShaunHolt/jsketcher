@@ -1,6 +1,6 @@
 import {CURRENT_SELECTION as S} from './wizard'
 import {PreviewWizard, SketchBasedPreviewer} from './preview-wizard'
-import {ParametricExtruder, fixNegativeValue} from '../cut-extrude'
+import {getEncloseDetails} from '../cut-extrude'
 import {TriangulatePolygons} from '../../../triangulation'
 import Vector from '../../../../math/vector'
 import {reversedIndex} from '../../../../utils/utils'
@@ -52,40 +52,23 @@ export class ExtrudePreviewer extends SketchBasedPreviewer {
   }
   
   createImpl(app, params, sketch, face) {
-    let reverseNormal = !this.inversed;
-    if (params.value < 0) {
-      params = fixNegativeValue(params);
-      reverseNormal = !reverseNormal;
-    }
-    const pe = new ParametricExtruder(params);
-
-    let baseSurface = face.brepFace.surface;
-    if (reverseNormal) {
-      baseSurface = baseSurface.invert();
-    }
-    const lidSurface = pe.getLidSurface(baseSurface);
+    const encloseDetails = getEncloseDetails(params, sketch, face.brepFace.surface, !this.inversed);
     const triangles = [];
-    for (let contour of sketch) {
-
-      if (reverseNormal) contour.reverse();
-      
-      const base = contour.transferOnSurface(face.brepFace.surface);
-      contour.reverse();
-      const lid = contour.transferOnSurface(face.brepFace.surface, null, pe.getLidPointTransformation());
-      
-      if (!reverseNormal) contour.reverse();
-      
+    for (let d of encloseDetails) {
+      const base = d.basePath.points;
+      const lid = d.lidPath.points;
       const n = base.length;
-      for (let b = 0; b < n; b ++) {
-        const l = reversedIndex(b, n);
-        triangles.push([ base[b].a, base[b].b, lid[l].a ]);
-        triangles.push([ lid[l].a, lid[l].b, base[b].a ]);
+      for (let p = n - 1, q = 0; q < n; p = q ++) {
+        triangles.push([ base[p], base[q], lid[q] ]);
+        triangles.push([ lid[q], lid[p], base[p] ]);
       }
-      TriangulatePolygons([base.map(t => t.a)], baseSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
-        .forEach(tr => triangles.push(tr));
       
-      TriangulatePolygons([lid.map(t => t.a)], lidSurface.normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
-        .forEach(tr => triangles.push(tr));
+      function collectOnSurface(points, normal) {
+        TriangulatePolygons([points], normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
+          .forEach(tr => triangles.push(tr));
+      }
+      collectOnSurface(base, d.baseSurface.normal);
+      collectOnSurface(lid, d.lidSurface.normal);
     }
     return triangles;
   }

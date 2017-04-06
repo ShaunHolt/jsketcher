@@ -1,12 +1,13 @@
 import {Matrix3, BasisForPlane, ORIGIN} from '../../../math/l3space'
 import * as math from '../../../math/math'
 import Vector from '../../../math/vector'
-import {Extruder} from '../../../brep/brep-builder'
+import {enclose, iterateSegments} from '../../../brep/brep-builder'
 import {BREPValidator} from '../../../brep/brep-validator'
 import * as stitching from '../../../brep/stitching'
 import {subtract, union} from '../../../brep/operations/boolean'
 import {Loop} from '../../../brep/topo/loop'
 import {Shell} from '../../../brep/topo/shell'
+import {CompositeCurve} from '../../../brep/geom/curve'
 import {ReadSketchContoursFromFace} from '../sketch/sketch-reader'
 import {Segment} from '../sketch/sketch-model'
 import {isCurveClass} from '../../cad-utils'
@@ -24,47 +25,33 @@ export function Cut(app, params) {
 export function doOperation(app, params, cut) {
   const face = app.findFace(params.face);
   const solid = face.solid;
-  let reverse = !cut;
   
-  if (params.value < 0) {
-    params = fixNegativeValue(params);
-    reverse = !reverse;
-  }
-
   const sketch = ReadSketchContoursFromFace(app, face);
   
-  const extruder = new ParametricExtruder(params);
-  const operand = combineShells(sketch.map(s => extruder.extrude(s, face.brepFace.surface, reverse)));
+  const details = getEncloseDetails(params, sketch, face.brepFace.surface, !cut);
+  const operand = combineShells(details.map(d => enclose(d.basePath, d.lidPath, d.baseSurface, d.lidSurface, wallJoiner)));
   BREPValidator.validateToConsole(operand);
 
-  //let result;
-  //if (solid instanceof BREPSceneSolid) {
-  //  const op = cut ? subtract : union;
-  //  result = op(solid.shell, operand);
-  //  for (let newFace of result.faces) {
-  //    if (newFace.id == face.id) {
-  //      newFace.id = undefined;
-  //    }
-  //  }
-  //} else {
-  //  if (cut) throw 'unable to cut plane';
-  //  result = operand;
-  //}
-  //stitching.update(result);
-  const newSolid = new BREPSceneSolid(operand);
+  let result;
+  if (solid instanceof BREPSceneSolid) {
+    const op = cut ? subtract : union;
+    result = op(solid.shell, operand);
+    for (let newFace of result.faces) {
+      if (newFace.id == face.id) {
+        newFace.id = undefined;
+      }
+    }
+  } else {
+    if (cut) throw 'unable to cut plane';
+    result = operand;
+  }
+  stitching.update(result);
+  const newSolid = new BREPSceneSolid(result);
   return {
     outdated: [solid],
     created:  [newSolid]
   }
 }
-
-export function fixNegativeValue(params) {
-  if (params.value < 0) {
-    params = Object.assign({}, params);
-    params.value *= -1;
-  } 
-  return params;
-} 
 
 function combineShells(shells) {
   if (shells.length == 1) {
@@ -75,41 +62,61 @@ function combineShells(shells) {
   return cutter;
 }
 
-export class ParametricExtruder extends Extruder {
-  
-  constructor(params) {
-    super();
-    this.params = params;
-  }
-  
-  getLidSurface(baseSurface) {
-    let target;
-    this.basis = baseSurface.basis();
-    const lidNormal = baseSurface.normal.negate();
-    if (this.params.rotation != 0) {
-      target = Matrix3.rotateMatrix(this.params.rotation * Math.PI / 180, this.basis[0], ORIGIN).apply(lidNormal);
-      if (this.params.angle != 0) {
-        target = Matrix3.rotateMatrix(this.params.angle * Math.PI / 180, this.basis[2], ORIGIN)._apply(target);
-      }
-      target._multiply(Math.abs(this.params.value));
-    } else {
-      target = lidNormal.multiply(Math.abs(this.params.value));
+export function wallJoiner(wallFace, group) {
+  if (group && group.constructor.name != 'Segment') {
+    if (!group.stitchedSurface) {
+      group.stitchedSurface = new stitching.StitchedSurface();
     }
-    this.target = target;
-    return baseSurface.move(target).invert();
+    group.stitchedSurface.addFace(wallFace);
   }
-  
-  getLidPointTransformation() {
-    return p => p.plus(this.target);
+}
+
+export function getEncloseDetails(params, contours, sketchSurface, invert) {
+  let value = params.value;
+  if (value < 0) {
+    value = Math.abs(value);
+    invert = !invert;
   }
-  
-  onWallCallback(wallFace, baseTrimmedCurve, lidTrimmedCurve) {
-    const group = baseTrimmedCurve.group;
-    if (group && group instanceof Segment) {
-      if (!group.stitchedSurface) {
-        group.stitchedSurface = new stitching.StitchedSurface();
-      }
-      group.stitchedSurface.addFace(wallFace);
+
+  const baseSurface = invert ? sketchSurface.invert() : sketchSurface; 
+
+  let target;
+  const targetDir = baseSurface.normal.negate();
+
+  if (params.rotation != 0) {
+    target = Matrix3.rotateMatrix(params.rotation * Math.PI / 180, this.basis[0], ORIGIN).apply(targetDir);
+    if (params.angle != 0) {
+      target = Matrix3.rotateMatrix(params.angle * Math.PI / 180, this.basis[2], ORIGIN)._apply(target);
     }
+    target._multiply(value);
+  } else {
+    target = targetDir.multiply(value);
   }
+  
+  let details = [];
+  for (let contour of contours) {
+    if (invert) {
+      contour.reverse();
+    }
+    const basePath = contour.transferOnSurface(sketchSurface);
+    const lidPath = new CompositeCurve();
+    
+    let lidPoints = basePath.points;
+    if (!math.equal(params.prism, 1)) {
+      const _3D = sketchSurface.get3DTransformation();
+      const _2D = _3D.invert();
+      lidPoints = math.polygonOffset(lidPoints.map(p => _2D.apply(p)) , params.prism).map(p => _3D._apply(p));  
+    }
+    
+    for (let i = 0; i < basePath.points.length; ++i) {
+      const curve = basePath.curves[i];
+      const point = lidPoints[i];
+      const group = basePath.groups[i];
+      lidPath.add(curve.translate(target), point.plus(target), group);
+    }
+
+    const lidSurface = baseSurface.translate(target).invert();
+    details.push({basePath, lidPath, baseSurface, lidSurface});
+  }
+  return details;
 }

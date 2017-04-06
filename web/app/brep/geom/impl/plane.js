@@ -29,7 +29,7 @@ export class Plane extends Surface {
     return super.intersect();
   }
 
-  move(vector) {
+  translate(vector) {
     return new Plane(this.normal, this.normal.dot(this.normal.multiply(this.w)._plus(vector)));
   }
 

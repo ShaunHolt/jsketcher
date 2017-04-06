@@ -11,14 +11,24 @@ export class Curve {
   parametricEquation(t) {
     throw 'not implemented';
   }
+  
+  translate(vector) {
+    throw 'not implemented';
+  }
 }
 
-export class TrimmedCurve {
 
-  constructor(a, b, curve, group) {
-    this.curve = curve;
-    this.a = a;
-    this.b = b;
-    this.group = group;
+export class CompositeCurve {
+
+  constructor() {
+    this.curves = [];
+    this.points = [];
+    this.groups = [];
+  }
+
+  add(curve, point, group) {
+    this.curves.push(curve);
+    this.points.push(point);
+    this.groups.push(group);
   }
 }

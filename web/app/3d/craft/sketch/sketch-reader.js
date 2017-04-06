@@ -62,14 +62,15 @@ export function ReadSketchPoint(arr) {
 export function ReadSketchContoursFromFace(app, face) {
   const savedFace = localStorage.getItem(app.faceStorageKey(face.id));
   if (savedFace == null) return null;
-  const surface = face.brepFace.surface;
   const geom = ReadSketch(JSON.parse(savedFace), face.id, false);
   const contours = findClosedContours(geom.connections);
   for (let loop of geom.loops) {
-    contours.push(new sm.Contour(loop));
+    const contour = new sm.Contour();
+    contour.add(loop);
+    contours.push(contour);
   }
   for (let contour of contours) {
-    if (!contour.isCCW(surface)) contour.reverse();
+    if (!contour.isCCW()) contour.reverse();
   }
   return contours;
 }

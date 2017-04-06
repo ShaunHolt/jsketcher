@@ -1,8 +1,9 @@
-import {TrimmedCurve} from '../../../brep/geom/curve'
+import {CompositeCurve} from '../../../brep/geom/curve'
 import {ApproxCurve} from '../../../brep/geom/impl/approx'
 import {Point} from '../../../brep/geom/point'
 import {Line} from '../../../brep/geom/impl/Line'
 import {LUT} from '../../../math/bezier-cubic'
+import {isCCW} from '../../../math/math'
 
 const RESOLUTION = 20;
 
@@ -181,9 +182,9 @@ export class Contour {
   add(obj) {
     this.segments.push(obj);
   }
-  
+
   transferOnSurface(surface, tr2d, tr3d) {
-    const edges = [];
+    const cc = new CompositeCurve();
     
     const _3dTransformation = surface.get3DTransformation();
     const depth = surface.w;
@@ -196,6 +197,7 @@ export class Contour {
     }
     
     let prev = null;
+    let firstPoint = null;
     for (let segIdx = 0; segIdx < this.segments.length; ++segIdx) {
       let segment = this.segments[segIdx];
       let approximation = segment.approximate(RESOLUTION);
@@ -203,19 +205,26 @@ export class Contour {
       approximation = approximation.map(p => tr(p));
 
       const n = approximation.length;
+      prev = prev == null ? approximation[0] : prev;
+      approximation[0] = prev; // this magic is to keep identity of same vectors 
+      if (firstPoint == null) firstPoint = approximation[0];
+      
+      if (segIdx == this.segments.length - 1) {
+        approximation[n - 1] = firstPoint;
+      }
+      
       if (segment.constructor.name == 'Arc') {
-        edges.push(new TrimmedCurve(approximation[0], approximation[n - 1], new ApproxCurve(approximation, segment)));
+        cc.add(new ApproxCurve(approximation, segment), prev, segment);
+        prev = approximation[n - 1];
       } else {
-        prev = prev == null ? approximation[0] : prev;
         for (let i = 1; i < n; ++i) {
-          const isLast = segIdx == this.segments.length - 1 && i == n - 1; 
-          const curr = isLast ? edges[0].a : approximation[i];
-          edges.push(new TrimmedCurve(prev, curr, new Line.fromSegment(prev, curr), segment));
+          const curr = approximation[i];
+          cc.add(new Line.fromSegment(prev, curr), prev, segment);
           prev = curr;
         }
       }
     }
-    return edges;
+    return cc;
   }
   
   approximate(resolution) {
@@ -223,16 +232,15 @@ export class Contour {
     for (let segment of this.segments) {
       const segmentApproximation = segment.approximate(resolution);
       //skip last one cuz it's guaranteed to be closed
-      for (let i = 0; i < segmentApproximation.length - 2; ++i) {
+      for (let i = 0; i < segmentApproximation.length - 1; ++i) {
         approximation.push(segmentApproximation[i]);
       }
     }
     return approximation;
   }
 
-  isCCW(surface) {
-    const tr = surface.get3DTransformation();
-    return this.approximate(10).map(p => tr(p));
+  isCCW() {
+    return isCCW(this.approximate(10));
   }
   
   reverse() {

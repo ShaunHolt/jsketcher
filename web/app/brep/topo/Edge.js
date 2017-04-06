@@ -46,19 +46,6 @@ export class HalfEdge extends TopoObject {
     return this.edge.halfEdge1 == this ? this.edge.halfEdge2 : this.edge.halfEdge1;
   }
 
-  createTwin() {
-    const twin = new HalfEdge();
-    twin.vertexA = this.vertexB;
-    twin.vertexB = this.vertexA;
-    twin.edge = this.edge; 
-    if (this.edge.halfEdge1 == this) {
-      this.edge.halfEdge2 = twin;
-    }  else {
-      this.edge.halfEdge1 = twin;
-    }
-    return twin; 
-  }
-
   split(vertex) {
 
     function splitHalfEdge(h) {
