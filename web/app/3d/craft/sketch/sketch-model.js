@@ -24,6 +24,10 @@ class SketchPrimitive {
     }
     return approximation;
   }
+  
+  isCurve() {
+    return this.constructor.name != 'Segment';
+  }
 }
 
 export class Segment extends SketchPrimitive {

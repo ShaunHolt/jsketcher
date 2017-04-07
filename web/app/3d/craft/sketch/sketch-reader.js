@@ -75,8 +75,40 @@ export function ReadSketchContoursFromFace(app, face) {
   return contours;
 }
 
-export function findClosedContours(segments) {
+function findClosedContours(segments) {
+  const result = [];
+  findClosedContoursFromPairedCurves(segments, result);
+  findClosedContoursFromGraph(segments, result);
+  return result;
+}
 
+function findClosedContoursFromPairedCurves(segments, result) {
+  for (let i = 0; i < segments.length; i++) {
+    const s1 = segments[i]; 
+    for (let j = i; j < segments.length; j++) {
+      if (i == j) continue;
+      const s2 = segments[j];
+      if (s1.isCurve() && s2.isCurve()) {
+        let paired = false; 
+        if (math.strictEqual2D(s1.a, s2.a) && math.strictEqual2D(s1.b, s2.b)) {
+          paired = true;
+          s2.invert();
+        } else if (math.strictEqual2D(s1.a, s2.b) && math.strictEqual2D(s1.b, s2.a)) {
+          paired = true;
+        }
+        if (paired) {
+          const contour = new sm.Contour();
+          contour.add(s1);
+          contour.add(s2);
+          result.push(contour);
+        }
+      }
+    }
+  }
+}
+
+function findClosedContoursFromGraph(segments, result) {
+  
   const dict = HashTable.forVector2d();
   const edges = HashTable.forDoubleArray();
 
@@ -121,7 +153,6 @@ export function findClosedContours(segments) {
   };
 
   const loops = Graph.findAllLoops(graph, dict.hashCodeF, dict.equalsF);
-  const result = [];
   for (let loop of loops) {
     const contour = new sm.Contour();
     for (let pi = 0; pi < loop.length; ++pi) {
@@ -136,5 +167,4 @@ export function findClosedContours(segments) {
     }
     result.push(contour);
   }
-  return result;
 }
