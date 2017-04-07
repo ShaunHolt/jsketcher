@@ -187,17 +187,15 @@ export class Contour {
     this.segments.push(obj);
   }
 
-  transferOnSurface(surface, tr2d, tr3d) {
+  transferOnSurface(surface, forceApproximation) {
     const cc = new CompositeCurve();
     
     const _3dTransformation = surface.get3DTransformation();
     const depth = surface.w;
     function tr(v) {
-      if (tr2d) v = tr2d(v);
+      v = v.copy();
       v.z = depth;
-      v = _3dTransformation.apply(v);
-      if (tr3d) v = tr3d(v);
-      return v;
+      return _3dTransformation._apply(v);
     }
     
     let prev = null;
@@ -217,7 +215,7 @@ export class Contour {
         approximation[n - 1] = firstPoint;
       }
       
-      if (segment.constructor.name == 'Arc') {
+      if (!forceApproximation && segment.constructor.name == 'Arc') {
         cc.add(new ApproxCurve(approximation, segment), prev, segment);
         prev = approximation[n - 1];
       } else {
