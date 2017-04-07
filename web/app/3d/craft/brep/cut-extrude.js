@@ -28,23 +28,24 @@ export function doOperation(app, params, cut) {
   
   const sketch = ReadSketchContoursFromFace(app, face);
   
-  const details = getEncloseDetails(params, sketch, face.brepFace.surface, !cut);
+  const details = getEncloseDetails(params, sketch, face.brepFace.surface, !cut, false);
   const operand = combineShells(details.map(d => enclose(d.basePath, d.lidPath, d.baseSurface, d.lidSurface, wallJoiner)));
   BREPValidator.validateToConsole(operand);
 
   let result;
-  if (solid instanceof BREPSceneSolid) {
-    const op = cut ? subtract : union;
-    result = op(solid.shell, operand);
-    for (let newFace of result.faces) {
-      if (newFace.id == face.id) {
-        newFace.id = undefined;
-      }
-    }
-  } else {
-    if (cut) throw 'unable to cut plane';
-    result = operand;
-  }
+  //if (solid instanceof BREPSceneSolid) {
+  //  const op = cut ? subtract : union;
+  //  result = op(solid.shell, operand);
+  //  for (let newFace of result.faces) {
+  //    if (newFace.id == face.id) {
+  //      newFace.id = undefined;
+  //    }
+  //  }
+  //} else {
+  //  if (cut) throw 'unable to cut plane';
+  //  result = operand;
+  //}
+  result = operand;
   stitching.update(result);
   const newSolid = new BREPSceneSolid(result);
   return {
@@ -71,7 +72,7 @@ export function wallJoiner(wallFace, group) {
   }
 }
 
-export function getEncloseDetails(params, contours, sketchSurface, invert) {
+export function getEncloseDetails(params, contours, sketchSurface, invert, forceApproximation) {
   let value = params.value;
   if (value < 0) {
     value = Math.abs(value);
@@ -84,9 +85,10 @@ export function getEncloseDetails(params, contours, sketchSurface, invert) {
   const targetDir = baseSurface.normal.negate();
 
   if (params.rotation != 0) {
-    target = Matrix3.rotateMatrix(params.rotation * Math.PI / 180, this.basis[0], ORIGIN).apply(targetDir);
+    const basis = sketchSurface.basis();
+    target = Matrix3.rotateMatrix(params.rotation * Math.PI / 180, basis[0], ORIGIN).apply(targetDir);
     if (params.angle != 0) {
-      target = Matrix3.rotateMatrix(params.angle * Math.PI / 180, this.basis[2], ORIGIN)._apply(target);
+      target = Matrix3.rotateMatrix(params.angle * Math.PI / 180, basis[2], ORIGIN)._apply(target);
     }
     target._multiply(value);
   } else {
@@ -95,10 +97,10 @@ export function getEncloseDetails(params, contours, sketchSurface, invert) {
   
   let details = [];
   for (let contour of contours) {
-    if (invert) {
-      contour.reverse();
-    }
-    const basePath = contour.transferOnSurface(sketchSurface);
+    if (invert) contour.reverse();
+    const basePath = contour.transferOnSurface(sketchSurface, forceApproximation);
+    if (invert) contour.reverse();
+    
     const lidPath = new CompositeCurve();
     
     let lidPoints = basePath.points;
