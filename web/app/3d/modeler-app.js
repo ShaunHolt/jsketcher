@@ -24,6 +24,8 @@ import * as BREPBool from '../brep/operations/boolean'
 import {BREPValidator} from '../brep/brep-validator'
 import {BREPSceneSolid} from './scene/brep-scene-object'
 import TPI from './tpi'
+import {createBox} from "../hds/hds-builder";
+import {createSphere, rayMarchOntoCanvas, sdfIntersection, sdfNurbs, sdfSubtract, sdfTransform} from "../hds/sdf";
 
 function App() {
   this.id = this.processHints();
@@ -83,24 +85,34 @@ App.prototype.addShellOnScene = function(shell, skin) {
 };
 
 App.prototype.scratchCode = function() {
-  const a = BREPBuilder.createPrism(ap.map(p => new this.TPI.brep.geom.Point().set3(p)), 500);
-  const b = BREPBuilder.createPrism(bp.map(p => new this.TPI.brep.geom.Point().set3(p)), 500);
+  let box = createBox(250, 250, 250);
+  this.viewer.workGroup.add(box.toThreeMesh());
 
-  this.addShellOnScene(a, {
-    color: 0x800080,
-    transparent: true,
-    opacity: 0.5,
+  let win = $('<div><canvas width="1000" height="1000" /></div>')
+    .css({
+     'position': 'absolute',
+     'width': '800px',
+     'height': '800px',
+     'left': '300px',
+     'top': '100px',
+     'z-order': 999999
   });
-  this.addShellOnScene(b, {
-    color: 0xfff44f,
-    transparent: true,
-    opacity: 0.5,
-  });
-  //this.addShellOnScene(a);
-  //this.addShellOnScene(b);
-  const result = BREPBool.subtract(a, b);
-  this.addShellOnScene(result);
+  win.appendTo($('body'));
+  const canvas = win.find('canvas')[0];
+  console.log(canvas);
+  const ctx = canvas.getContext('2d');
 
+  // ctx.fillStyle = 'green';
+  // ctx.fillRect(10, 10, 100, 100);
+  
+  let sphere = createSphere(new Vector(), 300);
+  let sphere2 = sdfTransform(sphere, new Matrix3().translate(0, 300, 0));
+  let nurbs = sdfNurbs(box.faces[0].surface);
+  let result = sdfSubtract(sphere, sphere2);
+  
+  let width = this.viewer.container.clientWidth;
+  let height = this.viewer.container.clientHeight;
+  rayMarchOntoCanvas(nurbs, this.viewer.camera, width, height, canvas, 5000);
   this.viewer.render();
 };
 
