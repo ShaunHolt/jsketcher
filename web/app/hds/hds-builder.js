@@ -21,11 +21,27 @@ export function createBox(w, h, d) {
   const wall2 = wall1.transform(yRot);
   const wall4 = wall3.transform(yRot);
 
-  // solid.faces.push(new HMFace(base, new HMLoop(base.boundaries())));
-  // solid.faces.push(new HMFace(lid, new HMLoop(lid.boundaries())));
-  // solid.faces.push(new HMFace(wall1, new HMLoop(wall1.boundaries())));
-  // solid.faces.push(new HMFace(wall2, new HMLoop(wall2.boundaries())));
-  // solid.faces.push(new HMFace(wall3, new HMLoop(wall3.boundaries())));
+  solid.faces.push(new HMFace(base, new HMLoop(base.boundaries())));
+  solid.faces.push(new HMFace(lid, new HMLoop(lid.boundaries())));
+  solid.faces.push(new HMFace(wall1, new HMLoop(wall1.boundaries())));
+  solid.faces.push(new HMFace(wall2, new HMLoop(wall2.boundaries())));
+  solid.faces.push(new HMFace(wall3, new HMLoop(wall3.boundaries())));
   solid.faces.push(new HMFace(wall4, new HMLoop(wall4.boundaries())));
   return solid;
 }
+
+export function createSphere(center, r) {
+  const solid = new HMSolid();
+  solid.faces.push(new HMFace(new verb.geom.SphericalSurface(center, r)));
+  return solid;
+}
+
+export function createCylinder( radius, height ) {
+  const solid = new HMSolid();
+  const circle = new verb.geom.Circle([0, 0, 0], [1, 0, 0], [0, 1, 0], radius);
+  const cyl = new verb.geom.ExtrudedSurface(circle.reverse(), [0, 0, height]);
+  
+  solid.faces.push(new HMFace(cyl));
+  return solid;
+}
+

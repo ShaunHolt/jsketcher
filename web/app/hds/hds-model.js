@@ -1,4 +1,4 @@
-export class HMSolid {
+export class HMSHell {
 
   constructor() {
     this.faces = [];
@@ -11,11 +11,13 @@ export class HMSolid {
       const tess = face.tessellate({maxDepth: 3});
       tess.points.forEach(p => geom.vertices.push(new THREE.Vector3().fromArray(p)));
       for (let faceIndices of tess.faces) {
-        let normales = faceIndices.map(x => new THREE.Vector3().fromArray(tess.normals[x]));
-        const face = new THREE.Face3(faceIndices[0] + off, faceIndices[1] + off, faceIndices[2] + off, normales);
+        
+        
+        const face = new THREE.Face3(faceIndices[0] + off, faceIndices[1] + off, faceIndices[2] + off);
         geom.faces.push(face);
       }
     }
+    geom.computeFaceNormals();
     const material = new THREE.MeshPhongMaterial({
       vertexColors: THREE.FaceColors,
       color: 0xB0C4DE,

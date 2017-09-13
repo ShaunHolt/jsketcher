@@ -6,6 +6,26 @@ export const sdfTransform = (sd, tr) => {
   tr = tr.invert();
   return (p) => sd(tr.apply(p))
 };
+export const sdfUnion = function() {
+  const args = Array.prototype.slice.call(arguments); 
+  return (p) => {
+    let min = null;  
+    let absMin;
+    for (let a of args) {
+      const dist = a(p);
+      if (dist < 0) {
+        continue;  
+      }     
+      if (min == null || min < dist) {
+        min = dist;
+      }    
+    }
+    if (min === null) {
+      min = Math.min.apply(this, args);
+    }
+    return min;
+  };
+}
 export const sdfIntersection = (a, b) => (p) => Math.max(a(p), b(p));
 export const sdfSubtract = (a, b) => (p) => Math.max(a(p), -b(p));
 
@@ -15,24 +35,31 @@ export const sdfNurbs = (nurbs) => (p) => {
   const normal = new Vector().set3(nurbs.normal(uv[0], uv[1]));
   const length = p.minus(point).length();
   const sign  = normal.dot(p.minus(point)) > 0 ? 1 : -1;
-  return length * sign;
+  return - length * sign;
 };
 
-function rayMarch(sdf, rayBuilder, bitmap, shader, depth) {
+export const sdfSolid = (solid) => sdfUnion.apply(this, solid.faces.map(f => sdfNurbs(f.surface)));
+
+function rayMarch(sdf, rayBuilder, bitmap, shader, depth, step) {
   for (let x = 0; x < bitmap.width; x++) {
     for (let y = 0; y < bitmap.height; y++) {
-      const ray = rayBuilder(x, y);
-      let rayParam = 0;
       let hit = false;
-      while (rayParam < depth) {
-        const point = ray.origin.plus(ray.dir.multiply(rayParam));
-        const distance = sdf(point);
-        if (math.equal(distance, 0)) {
-          bitmap.set(x, y, shader(point));
-          hit = true;
-          break;
+      if (x % step === 0 && y % step === 0) {
+        const ray = rayBuilder(x, y);
+        let rayParam = 0;
+        while (rayParam < depth) {
+          const point = ray.origin.plus(ray.dir.multiply(rayParam));
+          const distance = sdf(point);
+          if (math.equal(distance, 0)) {
+            bitmap.set(x, y, shader(point));
+            hit = true;
+            break;
+          }
+          if (distance < 0) {
+            break;  
+          }
+          rayParam += distance;
         }
-        rayParam += distance;
       }
       if (!hit) {
         bitmap.set(x, y, null)
@@ -41,7 +68,7 @@ function rayMarch(sdf, rayBuilder, bitmap, shader, depth) {
   }
 }
 
-export function rayMarchOntoCanvas(sdf, camera, width, height, canvas, depth) {
+export function rayMarchOntoCanvas(sdf, camera, width, height, canvas, depth, resolution) {
 
   function rayBuilder(px, py) {
     const x = ( px / width ) * 2 - 1;
@@ -81,6 +108,6 @@ export function rayMarchOntoCanvas(sdf, camera, width, height, canvas, depth) {
     let deffused = color.clone().multiplyScalar(kd * diffuse + ka);
     return '#' + deffused.getHexString();
   }
-  rayMarch(sdf, rayBuilder, bitmap, shader, depth);
+  rayMarch(sdf, rayBuilder, bitmap, shader, depth, resolution);
 }
 
