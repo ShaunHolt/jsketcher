@@ -317,23 +317,25 @@ function intersectFaces(shell1, shell2, inverse) {
       }
 
       let curves = face1.surface.intersect(face2.surface);
-      if (inverse) {
-        curves = curves.map(c => c.inverse());
+
+      for (let curve of curves) {
+        if (inverse) {
+          curve = curve.inverse();
+        }
+        const nodes = [];
+        collectNodesOfIntersectionOfFace(curve, face1, nodes);
+        collectNodesOfIntersectionOfFace(curve, face2, nodes);
+
+        const newEdges = [];
+        nullifyDegradedNodes(nodes);
+        filterNodes(nodes);
+        split(nodes, curve, newEdges);
+
+        newEdges.forEach(e => {
+          addNewEdge(face1, e.halfEdge1);
+          addNewEdge(face2, e.halfEdge2);
+        });
       }
-
-      const nodes = [];
-      collectNodesOfIntersectionOfFace(curves, face1, nodes);
-      collectNodesOfIntersectionOfFace(curves, face2, nodes);
-
-      const newEdges = [];
-      calculateNodeNormals(nodes, curves);
-      filterNodes(nodes);
-      split(nodes, newEdges, curves);
-
-      newEdges.forEach(e => {
-        addNewEdge(face1, e.halfEdge1);
-        addNewEdge(face2, e.halfEdge2);
-      });
     }
   }
 }
@@ -347,12 +349,11 @@ function addNewEdge(face, halfEdge) {
   return true;
 }
 
-function calculateNodeNormals(nodes, curve) {
+function nullifyDegradedNodes(nodes) {
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
-    if (n != null) {
-      n.normal = nodeNormal(n.point, n.edge, curve);
-      if (n.normal == 0) {
+    if (n !== null) {
+      if (n.normal === 0) {
         nodes[i] = null;
       }
     }
@@ -362,13 +363,13 @@ function calculateNodeNormals(nodes, curve) {
 function filterNodes(nodes) {
   for (let i = 0; i < nodes.length; i++) {
     const node1 = nodes[i];
-    if (node1 == null) continue;
+    if (node1 === null) continue;
     for (let j = 0; j < nodes.length; j++) {
-      if (i == j) continue;
+      if (i === j) continue;
       const node2 = nodes[j];
-      if (node2 != null) {
-        if (node2.vertex == node1.vertex) {
-          if (node1.normal + node2.normal == 0) {
+      if (node2 !== null) {
+        if (node2.u === node1.u) {
+          if (node1.normal + node2.normal === 0) {
             nodes[i] = null
           }
           nodes[j] = null
@@ -378,150 +379,67 @@ function filterNodes(nodes) {
   }
 }
 
-function collectNodesOfIntersectionOfFace(curves, face, nodes) {
+function collectNodesOfIntersectionOfFace(curve, face, nodes) {
   for (let loop of face.loops) {
-    collectNodesOfIntersection(curves, loop, nodes);
+    collectNodesOfIntersection(curve, loop, nodes);
   }
 }
 
-function collectNodesOfIntersection(curves, loop, nodes) {
+function collectNodesOfIntersection(curve, loop, nodes) {
   for (let edge of loop.halfEdges) {
-    intersectCurvesWithEdge(curves, edge, nodes);
+    intersectCurveWithEdge(curves, edge, nodes);
   }
 }
 
-function intersectCurvesWithEdge(curves, edge, result) {
-  const newSubcurves = [];
+function intersectCurveWithEdge(curve, edge, result) {
   for (let i = 0; i < curves.length; ++i) {
-    let curve = curves[i];
-    const points = edge.intersectCurve(curve);  
+    const points = edge.intersectCurve(curve);
     for (let point of points) {
-      if (!math.areEqual(point._param, 0, TOLERANCE) && !math.areEqual(point._param, 1, TOLERANCE)) {
-        const subCurves = curve.split(point);
-        curves[i] = curve = subCurves[1];
-        newSubcurves.push(subCurves[0]);      
-      }
-      const node = new Node(newVertex(p), edge);
-      result.push(node);
+      result.push(new Node(point, edge, curve));
     }
-  }
-  for (let c of newSubcurves) {
-    curves.push(c);
   }
 }
 
-function split(nodes, result, onCurve, direction) {
-  for (let i = 0; i < nodes.length; i++) {
+function split(nodes, curve, result) {
+  nodes.sort((n1, n2) => n1.u - n2.u);
+  nodes = nodes.filter(n => n !== null);
+  for (let i = 0; i < nodes.length - 1; i++) {
     let inNode = nodes[i];
-    //if (i == 0)  __DEBUG__.AddPoint(inNode.vertex.point);
-
-    if (inNode == null) continue;
-    nodes[i] = null;
-    let closestIdx = findCloserOnCurve(nodes, inNode, onCurve);
-    if (closestIdx == -1) {
-      continue;
-    }
-    let outNode = nodes[closestIdx];
-    //if (i == 1)  __DEBUG__.AddPoint(outNode.vertex.point);
-    //if (i == 1)  __DEBUG__.AddSegment(inNode.point, inNode.point.plus(inNode.normal.multiply(1000)));
-    //__DEBUG__.AddSegment(new Vector(),  outNode.normal.multiply(100));
-
-    if (outNode.normal * inNode.normal > 0) {
-      continue;
+    let outNode = nodes[i + 1];
+    if (inNode.normal * outNode.normal !== -1) {
+      continue
     }
 
-    nodes[closestIdx] = null;
+    //__DEBUG__.AddPoint(inNode.point);
+    //__DEBUG__.AddPoint(outNode.point);
 
-    //__DEBUG__.AddPoint(inNode.vertex.point);
-    //__DEBUG__.AddPoint(outNode.vertex.point);
+    const edge = new Edge(curve, inNode.vertex(), outNode.vertex());
 
+    splitEdgeByVertex(inNode.edge, edge.halfEdge1.vertexA);
+    splitEdgeByVertex(outNode.edge, edge.halfEdge1.vertexB);
 
-    const halfEdge1 = new HalfEdge();
-    halfEdge1.vertexA = inNode.vertex;
-    halfEdge1.vertexB = outNode.vertex;
-
-    const halfEdge2 = new HalfEdge();
-    halfEdge2.vertexB = halfEdge1.vertexA;
-    halfEdge2.vertexA = halfEdge1.vertexB;
-
-    //__DEBUG__.AddHalfEdge(halfEdge1);
-    //__DEBUG__.AddSegment(new Vector(),  direction.multiply(100));
-
-
-    splitEdgeByVertex(inNode.edge, halfEdge1.vertexA, inNode.splittingFace);
-    splitEdgeByVertex(outNode.edge, halfEdge1.vertexB, outNode.splittingFace);
-
-    const sameDirection = direction.dot(outNode.point.minus(inNode.point)) > 0;
-
-    const halfEdgeSameDir = sameDirection ? halfEdge1 : halfEdge2;
-    const halfEdgeNegativeDir = sameDirection ? halfEdge2 : halfEdge1;
-
-    // cross edge should go with negative dir for the first face and positive for the second
-    const edge = new Edge(onCurve);
-    edge.halfEdge1 = halfEdgeNegativeDir;
-    edge.halfEdge2 = halfEdgeSameDir;
-    halfEdgeNegativeDir.edge = edge;
-    halfEdgeSameDir.edge = edge;
-
-    //check for corner case when to faces only intersects in edges
-    if (!containsEdges(result, edge)) {
-      result.push(edge);
-    }
+    result.push(edge);
   }
 }
 
-function splitEdgeByVertex(originHalfEdge, vertex, splittingFace) {
+function splitEdgeByVertex(edge, vertex) {
 
-  function splitHalfEdge(h) {
-    const newEdge = new HalfEdge();
-    newEdge.vertexA = vertex;
-    newEdge.vertexB = h.vertexB;
-    h.vertexB = newEdge.vertexA;
-    return newEdge;
-  }
-
-  const orig = originHalfEdge;
-  const twin = orig.twin();
-
-  if (orig.vertexA == vertex || orig.vertexB == vertex) {
+  if (orig.vertexA === vertex || orig.vertexB === vertex) { // TODO
     return;
   }
 
-  const newOrig = splitHalfEdge(orig);
-  const newTwin = splitHalfEdge(twin);
+  const curves = edge.curve.split(vertex.point);
+  const edge1 = new Edge(curves[0], edge.halfEdge1.vertexA, vertex);
+  const edge2 = new Edge(curves[1], vertex, edge.halfEdge1.vertexB);
 
-
-  BREPBuilder.linkHalfEdges(orig.edge, orig, newTwin);
-  BREPBuilder.linkHalfEdges(new Edge(orig.edge.curve), twin, newOrig);
-
-  orig.loop.halfEdges.splice(orig.loop.halfEdges.indexOf(orig) + 1, 0, newOrig);
-  twin.loop.halfEdges.splice(twin.loop.halfEdges.indexOf(twin) + 1, 0, newTwin);
-
-  newOrig.loop = orig.loop;
-  newTwin.loop = twin.loop;
-
-  EdgeSolveData.transfer(orig, newOrig);
-  EdgeSolveData.transfer(twin, newTwin);
-
-  //EdgeSolveData.createIfEmpty(twin).splitByFace.set(splittingFace, vertex);
-  //EdgeSolveData.createIfEmpty(newTwin).skipFace.add(splittingFace);
-}
-
-function findCloserOnCurve(nodes, toNode, curve) {
-  let hero = -1;
-  let heroDistance = Number.MAX_VALUE;
-  const origin = curve.t(toNode.point);
-  for (let i = 0; i < nodes.length; i++) {
-    let node = nodes[i];
-    if (node == null) continue;
-    let distance = (origin - curve.t(node.point)) * node.normal;
-    if (distance < 0) continue;
-    if (distance < heroDistance) {
-      hero = i;
-      heroDistance = distance;
-    }
+  function updateInLoop(halfEdge, h1, h2) {
+    let halfEdges = halfEdge.loop.halfEdges;
+    halfEdges.splice(halfEdges.indexOf(halfEdge), 1, h1, h2);
+    h1.loop = halfEdge.loop;
+    h2.loop = halfEdge.loop;
   }
-  return hero;
+  updateInLoop(edge.halfEdge1, edge1.halfEdge1, edge2.halfEdge1);
+  updateInLoop(edge.halfEdge2, edge2.halfEdge2, edge1.halfEdge2);
 }
 
 const POINT_TO_VERT = new Map();
@@ -537,7 +455,8 @@ function newVertex(point) {
 
 function nodeNormal(point, edge, curve) {
   const edgeTangent = edge.tangent(point);
-  const curveTangent = curve.v; //todo @ point
+  const curveTangent = new Vector().set3(curve.tangent(curve.closestParam(point.data())));
+
   let dot = edgeTangent.dot(curveTangent);
   if (math.areEqual(dot, 0, TOLERANCE)) {
     dot = 0;
@@ -548,10 +467,6 @@ function nodeNormal(point, edge, curve) {
       dot = 1;
   }
   return dot;
-}
-
-function edgeNormal(edge) {
-  throw 'unimplemented'
 }
 
 function EdgeSolveData() {
@@ -581,14 +496,12 @@ EdgeSolveData.transfer = function(from, to) {
   to.data[MY] = from.data[MY];
 };
 
-function Node(vertex, splitsEdge, splittingFace) {
-  this.vertex = vertex;
-  this.normal = 0;
-  this.point = vertex.point;
-  this.edge = splitsEdge;
+function Node(point, edge, curve) {
+  this.point = point;
+  this.edge = edge;
+  this.curve = curve;
+  this.normal = nodeNormal(point, edge, curve);;
   this.dir = null;
-  this.curve = null;
-  this.splittingFace = splittingFace;
   //__DEBUG__.AddPoint(this.point);
 }
 
@@ -642,7 +555,7 @@ function removeFromListInMap(map, key, value) {
   let list = map.get(key);
   if (list) {
     const idx = list.indexOf(value);
-    if (idx != -1) {
+    if (idx !== -1) {
       list.splice(idx, 1);
     }
   }

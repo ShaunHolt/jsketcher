@@ -57,9 +57,14 @@ export class NurbsCurve {
   }
   
   tangent(point) {
-    return new Point().set3(this.verb.tangent( this.verb.closestParam(point.data() )));
+    throw 'unimplemented'
+    return new Point().set3(this.verb.tangent( this.verb.closestParam(point.data())));
   }
-  
+
+  split(point) {
+    throw 'unimplemented'
+  }
+
   intersect(other, tolerance) {
     return verb.geom.Intersect.curves(this.verb, other.verb, tolerance).map(i => new Point().set3(i.point0));
   }
