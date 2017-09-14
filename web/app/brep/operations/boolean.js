@@ -339,7 +339,7 @@ function intersectFaces(shell1, shell2, inverse) {
 }
 
 function addNewEdge(face, halfEdge) {
-  var data = face.data[MY];
+  const data = face.data[MY];
   data.newEdges.push(halfEdge);
   halfEdge.loop = data.loopOfNew;
   EdgeSolveData.createIfEmpty(halfEdge).newEdgeFlag = true;
@@ -393,7 +393,7 @@ function collectNodesOfIntersection(curves, loop, nodes) {
 function intersectCurvesWithEdge(curves, edge, result) {
   const newSubcurves = [];
   for (let i = 0; i < curves.length; ++i) {
-    const curve = curves[i];
+    let curve = curves[i];
     const points = edge.intersectCurve(curve);  
     for (let point of points) {
       if (!math.areEqual(point._param, 0, TOLERANCE) && !math.areEqual(point._param, 1, TOLERANCE)) {
@@ -535,10 +535,8 @@ function newVertex(point) {
   return vertex;
 }
 
-function nodeNormal(point, edge, curve, edgeTangent) {
-  if (edgeTangent == null) {
-    edgeTangent = edgeNormal(edge); // todo @ point
-  }
+function nodeNormal(point, edge, curve) {
+  const edgeTangent = edge.tangent(point);
   const curveTangent = curve.v; //todo @ point
   let dot = edgeTangent.dot(curveTangent);
   if (math.areEqual(dot, 0, TOLERANCE)) {

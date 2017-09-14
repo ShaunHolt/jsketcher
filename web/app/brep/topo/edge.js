@@ -19,7 +19,10 @@ export class Edge extends TopoObject {
 
 export class HalfEdge extends TopoObject {
 
-  constructor() {
+  constructor(invert) {
+    if (invert === undefined) {
+      throw 'must setup invert flag';
+    }
     super();
     this.edge = null;
     this.vertexA = null;
@@ -27,6 +30,7 @@ export class HalfEdge extends TopoObject {
     this.loop = null;
     this.next = null;
     this.prev = null;
+    this.invert = false;
   }
   
   static create(a, b, loop, edge) {
@@ -93,6 +97,12 @@ export class HalfEdge extends TopoObject {
     newOrig.loop = orig.loop;
     newTwin.loop = twin.loop;
   }
+
+  tangent(point) {
+    this.edge.curve.closestParameter();
+    tangent
+  }
+
 }
 
 HalfEdge.fromVertices = function(a, b, curve) {
