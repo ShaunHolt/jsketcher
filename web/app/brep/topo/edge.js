@@ -1,5 +1,4 @@
 import {TopoObject} from './topo-object'
-import Vector from "../../math/vector";
 
 export class Edge extends TopoObject {
 
@@ -8,6 +7,15 @@ export class Edge extends TopoObject {
     this.curve = curve;
     this.halfEdge1 = new HalfEdge(this, false, a, b);
     this.halfEdge2 = new HalfEdge(this, true, b, a);
+  }
+  
+  invert() {
+    const t = this.halfEdge1;
+    this.halfEdge1 = this.halfEdge2;
+    this.halfEdge2 = t;
+    this.halfEdge1.inverted = false;
+    this.halfEdge2.inverted = true;
+    this.curve = this.curve.invert();
   }
 }
 
@@ -29,8 +37,8 @@ class HalfEdge extends TopoObject {
   }
 
   tangent(point) {
-    let u = this.edge.curve.closestParam(point.data());
-    let tangent = new Vector().set3(this.edge.curve.tangent(u));
+    let tangent = this.edge.curve.tangentAtPoint(point);
+    tangent._normalize();
     if (this.inverted) {
       tangent._negate();
     }

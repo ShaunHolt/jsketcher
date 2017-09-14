@@ -33,6 +33,10 @@ export class Surface {
 
   //--------------------------------------------------------------------------------------------------------------------
 
+  normal(point) {
+    throw 'not implemented';
+  }
+
   toNurbs() {
     throw 'not implemented';
   }

@@ -52,6 +52,9 @@ export function invert( shell ) {
     for (let loop of face.loops) {
       invertLoop(loop);
     }
+    for (let edge of shell.edges) {
+      edge.invert();
+    }
   }
   BREPValidator.validateToConsole(shell);
 }
@@ -67,6 +70,7 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
   let facesData = [];
 
   mergeVertices(shell1, shell2);
+  intersectEdges(shell1, shell2);
 
   initSolveData(shell1, facesData);
   initSolveData(shell2, facesData);
@@ -76,8 +80,6 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
   for (let faceData of facesData) {
     initGraph(faceData);
   }
-
-  facesData = facesData.filter(fd => fd.merged !== true);
 
   const allFaces = [];
   const newLoops = new Set();
@@ -130,10 +132,7 @@ function detectLoops(face) {
     }
     const loop = new Loop();
     loop.face = face;
-    let surface = EdgeSolveData.get(edge).transferedSurface;
-    if (!surface) {
-      surface = face.surface;
-    }
+    let surface = face.surface;
     while (edge) {
       if (DEBUG.LOOP_DETECTION) {
         __DEBUG__.AddHalfEdge(edge);
@@ -144,13 +143,13 @@ function detectLoops(face) {
       if (!candidates) {
         break;
       }
-      edge = findMaxTurningLeft(edge, candidates, surface.normal);
+      edge = findMaxTurningLeft(edge, candidates, surface);
       if (seen.has(edge)) {
         break;
       }
     }
 
-    if (loop.halfEdges[0].vertexA == loop.halfEdges[loop.halfEdges.length - 1].vertexB) {
+    if (loop.halfEdges[0].vertexA === loop.halfEdges[loop.halfEdges.length - 1].vertexB) {
       for (let halfEdge of loop.halfEdges) {
         halfEdge.loop = loop;
       }
@@ -276,12 +275,13 @@ function cleanUpSolveData(shell) {
   }
 }
 
-function findMaxTurningLeft(pivotEdge, edges, normal) {
+function findMaxTurningLeft(pivotEdge, edges, surface) {
   edges = edges.slice();
   function edgeVector(edge) {
-    return edge.vertexB.point.minus(edge.vertexA.point)._normalize();
+    return edge.tangent(edge.vertexA.point);
   }
-  const pivot = pivotEdge.vertexA.point.minus(pivotEdge.vertexB.point)._normalize();
+  const pivot = pivotEdge.tangent(pivotEdge.vertexB.point);
+  const normal = surface.normal(pivotEdge.vertexB.point);
   edges.sort((e1, e2) => {
     return leftTurningMeasure(pivot, edgeVector(e1), normal) - leftTurningMeasure(pivot, edgeVector(e2), normal);
   });
@@ -299,7 +299,55 @@ function leftTurningMeasure(v1, v2, normal) {
   return -measure;
 }
 
-function intersectFaces(shell1, shell2, inverse) {
+function intersectEdges(shell1, shell2, ) {
+  const tuples1 = [];
+  const tuples2 = [];
+
+  shell1.edges.forEach(e => tuples1.push([e]));
+  shell2.edges.forEach(e => tuples2.push([e]));
+
+  for (let i = 0; i < tuples1.length; i++) {
+    const edges1 = tuples1[i];
+    for (let j = 0; j < tuples2.length; j++) {
+      const edges2 = tuples2[j];
+      for (let k = 0; k < edges1.length; k++) {
+        const e1 = edges1[k];
+        for (let l = edges2.length - 1; l >= 0 ; l--) {
+          const e2 = edges2[l];
+          let points = e1.curve.intersect(e2.curve, TOLERANCE);
+
+          for (let point of points) {
+            const {u0, u1} = point;
+            let vertex;
+            if (equal(u0, 0)) {
+              vertex = e1.halfEdge1.vertexA;
+            } else if (equal(u0, 1)) {
+              vertex = e1.halfEdge1.vertexB;
+            } else if (equal(u1, 0)) {
+              vertex = e2.halfEdge1.vertexA;
+            } else if (equal(u1, 1)) {
+              vertex = e2.halfEdge1.vertexB;
+            } else {
+              vertex = newVertex(e1.curve.point(u0));
+            }
+            const new1 = splitEdgeByVertex(e1, vertex);
+            const new2 = splitEdgeByVertex(e2, vertex);
+            if (new1 !== null) {
+              edges1[k] = new1[0];
+              edges1.push(new1[1]);
+            }
+            if (new2 !== null) {
+              edges2[l] = new2[0];
+              edges2.push(new2[1]);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function intersectFaces(shell1, shell2, invert) {
   for (let i = 0; i < shell1.faces.length; i++) {
     const face1 = shell1.faces[i];
     if (DEBUG.FACE_FACE_INTERSECTION) {
@@ -311,16 +359,16 @@ function intersectFaces(shell1, shell2, inverse) {
       if (DEBUG.FACE_FACE_INTERSECTION) {
         __DEBUG__.Clear(); __DEBUG__.AddFace(face1, 0x00ff00);
         __DEBUG__.AddFace(face2, 0x0000ff);
-        if (face1.refId == 0 && face2.refId == 0) {
+        if (face1.refId === 0 && face2.refId === 0) {
           DEBUG.NOOP();
         }
       }
 
-      let curves = face1.surface.intersect(face2.surface);
+      let curves = face1.surface.intersect(face2.surface, TOLERANCE);
 
       for (let curve of curves) {
-        if (inverse) {
-          curve = curve.inverse();
+        if (invert) {
+          curve = curve.invert();
         }
         const nodes = [];
         collectNodesOfIntersectionOfFace(curve, face1, nodes);
@@ -368,7 +416,7 @@ function filterNodes(nodes) {
       if (i === j) continue;
       const node2 = nodes[j];
       if (node2 !== null) {
-        if (node2.u === node1.u) {
+        if (equal(node2.u, node1.u)) {
           if (node1.normal + node2.normal === 0) {
             nodes[i] = null
           }
@@ -393,9 +441,20 @@ function collectNodesOfIntersection(curve, loop, nodes) {
 
 function intersectCurveWithEdge(curve, edge, result) {
   for (let i = 0; i < curves.length; ++i) {
-    const points = edge.intersectCurve(curve);
+    const points = edge.edge.curve.intersectCurve(curve);
     for (let point of points) {
-      result.push(new Node(point, edge, curve));
+      const {u0, u1} = point;
+
+      let vertex;
+      if (equal(u0, 0)) {
+        vertex = edge.edge.halfEdge1.vertexA;
+      } else if (equal(u0, 1)) {
+        vertex = edge.edge.halfEdge1.vertexB;
+      } else {
+        vertex = new Vertex(edge.edge.curve.point(u0));
+      }
+      
+      result.push(new Node(vertex, edge, curve, u1));
     }
   }
 }
@@ -410,10 +469,7 @@ function split(nodes, curve, result) {
       continue
     }
 
-    //__DEBUG__.AddPoint(inNode.point);
-    //__DEBUG__.AddPoint(outNode.point);
-
-    const edge = new Edge(curve, inNode.vertex(), outNode.vertex());
+    const edge = new Edge(curve, inNode.vertex, outNode.vertex);
 
     splitEdgeByVertex(inNode.edge, edge.halfEdge1.vertexA);
     splitEdgeByVertex(outNode.edge, edge.halfEdge1.vertexB);
@@ -424,8 +480,8 @@ function split(nodes, curve, result) {
 
 function splitEdgeByVertex(edge, vertex) {
 
-  if (orig.vertexA === vertex || orig.vertexB === vertex) { // TODO
-    return;
+  if (edge.halfEdge1.vertexA === vertex || edge.halfEdge1.vertexB === vertex) {
+    return null;
   }
 
   const curves = edge.curve.split(vertex.point);
@@ -440,6 +496,14 @@ function splitEdgeByVertex(edge, vertex) {
   }
   updateInLoop(edge.halfEdge1, edge1.halfEdge1, edge2.halfEdge1);
   updateInLoop(edge.halfEdge2, edge2.halfEdge2, edge1.halfEdge2);
+
+  EdgeSolveData.transfer(edge.halfEdge1, edge1.halfEdge1);
+  EdgeSolveData.transfer(edge.halfEdge1, edge2.halfEdge1);
+
+  EdgeSolveData.transfer(edge.halfEdge2, edge2.halfEdge2);
+  EdgeSolveData.transfer(edge.halfEdge2, edge1.halfEdge2);
+
+  return [edge1, edge2];
 }
 
 const POINT_TO_VERT = new Map();
@@ -458,7 +522,7 @@ function nodeNormal(point, edge, curve) {
   const curveTangent = new Vector().set3(curve.tangent(curve.closestParam(point.data())));
 
   let dot = edgeTangent.dot(curveTangent);
-  if (math.areEqual(dot, 0, TOLERANCE)) {
+  if (equal(dot, 0)) {
     dot = 0;
   } else {
     if (dot < 0) 
@@ -496,12 +560,12 @@ EdgeSolveData.transfer = function(from, to) {
   to.data[MY] = from.data[MY];
 };
 
-function Node(point, edge, curve) {
-  this.point = point;
+function Node(vertex, edge, curve, u) {
+  this.vertex = vertex;
   this.edge = edge;
   this.curve = curve;
-  this.normal = nodeNormal(point, edge, curve);;
-  this.dir = null;
+  this.u = u;
+  this.normal = nodeNormal(vertex.point, edge, curve);
   //__DEBUG__.AddPoint(this.point);
 }
 
@@ -567,6 +631,10 @@ function __DEBUG_OPERANDS(shell1, shell2) {
     __DEBUG__.AddVolume(shell1, 0x800080);
     __DEBUG__.AddVolume(shell2, 0xfff44f);
   }
+}
+
+function equal(v1, v2) {
+  return math.areEqual(v1, v2, TOLERANCE);
 }
 
 const MY = '__BOOLEAN_ALGORITHM_DATA__'; 
