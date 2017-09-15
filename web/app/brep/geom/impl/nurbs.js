@@ -1,4 +1,3 @@
-import verb from 'verb-nurbs'
 import {Matrix3} from  '../../../math/l3space'
 import * as math from  '../../../math/math'
 import {Point} from '../point'
@@ -125,5 +124,19 @@ export class NurbsSurface extends Surface {
     let inverted = new NurbsSurface(this.verb);
     inverted.inverted = !this.inverted;
     return inverted;
+  }
+
+  isoCurve(param, useV) {
+    const data = verb.eval.Make.surfaceIsocurve(this.verb._data, param, useV);
+    const isoCurve = new verb.geom.NurbsCurve(data);
+    return new NurbsCurve(isoCurve);
+  }
+
+  isoCurveAlignU(param) {
+    return this.isoCurve(param, true);
+  }
+
+  isoCurveAlignV(param) {
+    return this.isoCurve(param, false);
   }
 }
