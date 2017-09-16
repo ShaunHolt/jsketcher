@@ -3,7 +3,9 @@ import Vector from "../../math/vector";
 
 export default function(face) {
   function asUV(p) {
-    return face.surface.verb.closestParam(p);
+    let uv = face.surface.verb.closestParam(p);
+    uv.push(0);
+    return uv;
   }
 
   function vertexCallback(data, out) {
