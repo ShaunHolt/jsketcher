@@ -3,6 +3,7 @@ import {EDGE_AUX, FACE_CHUNK} from '../../brep/stitching'
 import {normalOfCCWSeq} from '../cad-utils'
 import {TriangulateFace} from '../tess/triangulation'
 import {SceneSolid, SceneFace, WIREFRAME_MATERIAL} from './scene-object'
+import brepTess from '../tess/brep-tess'
 
 const SMOOTH_RENDERING = false //true;
 
@@ -23,14 +24,14 @@ export class BREPSceneSolid extends SceneSolid {
     this.createEdges();
     this.createVertices();
   }
-  
+
   createFaces() {
     const geom = this.mesh.geometry;
     const groups = triangulateToThree(this.shell, geom);
     for (let g of groups) {
       const sceneFace = new BREPSceneFace(g.brepFace, this);
       this.sceneFaces.push(sceneFace);
-      for (let i = g.groupStart; i < g.groupEnd; i ++) {
+      for (let i = g.groupStart; i < g.groupEnd; i++) {
         const face = geom.faces[i];
         sceneFace.registerMeshFace(face);
       }
@@ -77,7 +78,7 @@ class BREPSceneFace extends SceneFace {
   normal() {
     return this.brepFace.surface.normal;
   }
-  
+
   depth() {
     return this.brepFace.surface.w;
   }
@@ -85,7 +86,7 @@ class BREPSceneFace extends SceneFace {
   surface() {
     return this.brepFace.surface;
   }
-  
+
   getBounds() {
     const bounds = [];
     for (let loop of this.brepFace.loops) {
@@ -95,42 +96,41 @@ class BREPSceneFace extends SceneFace {
   }
 }
 
-export function triangulateToThree(shell, geom) {    
+export function triangulateToThree(shell, geom) {
   const result = [];
   let gIdx = 0;
+
   function addFace(face) {
-    face.materialIndex = gIdx ++;
+    face.materialIndex = gIdx++;
     geom.faces.push(face);
   }
+
   for (let brepFace of shell.faces) {
     const groupStart = geom.faces.length;
-      const polygons = TriangulateFace(brepFace);
-      const stitchedSurface = brepFace.data[FACE_CHUNK];
-      const nurbs = stitchedSurface ? stitchedSurface.origin : undefined;
-      let normalOrNormals = threeV(brepFace.surface.normal);
-      for (let p = 0; p < polygons.length; ++p) {
+    const polygons = brepTess(brepFace);
+    const stitchedSurface = brepFace.data[FACE_CHUNK];
+    const nurbs = stitchedSurface ? stitchedSurface.origin : undefined;
+    let normalOrNormals = threeV(brepFace.surface.normalInMiddle());
+    for (let p = 0; p < polygons.length; ++p) {
       const off = geom.vertices.length;
       const poly = polygons[p];
       const vLength = poly.length;
       if (vLength < 3) continue;
       const firstVertex = poly[0];
-      geom.vertices.push(firstVertex.point.three());
-      geom.vertices.push(poly[1].point.three());
+      geom.vertices.push(firstVertex.three());
+      geom.vertices.push(poly[1].three());
       for (let i = 2; i < vLength; i++) {
-        geom.vertices.push(poly[i].point.three());
+        geom.vertices.push(poly[i].three());
         const a = off;
         const b = i - 1 + off;
         const c = i + off;
 
         if (nurbs && SMOOTH_RENDERING) {
           function normal(v) {
-            const uv = nurbs.closestParam(v.point.data());
+            const uv = nurbs.closestParam(v.data());
             const vec = new THREE.Vector3();
             vec.set.apply(vec, nurbs.normal(uv[0], uv[1]));
             vec.normalize();
-            if (brepFace.data.INVERTED) {
-              vec.negate();
-            }
             return vec;
           }
 
@@ -164,4 +164,6 @@ class FaceGroup {
   }
 }
 
-function threeV(v) {return new THREE.Vector3( v.x, v.y, v.z )}
+function threeV(v) {
+  return new THREE.Vector3(v.x, v.y, v.z)
+}

@@ -1,4 +1,5 @@
 import libtess from 'libtess'
+import Vector from "../../math/vector";
 
 export default function(face) {
   function asUV(p) {
@@ -28,7 +29,7 @@ export default function(face) {
       }
       points.pop();
       for (let point of points) {
-        let uv = asUV(point.data());
+        let uv = asUV(point);
         tessy.gluTessVertex(uv, uv);
       }
     }
@@ -46,7 +47,11 @@ export default function(face) {
   }
   analyzeCurvature(face.surface.verb, triangles);
 
-  return triangles;
+  if (face.surface.inverted) {
+    triangles.forEach(t => t.reverse());
+  }
+
+  return triangles.map(t => t.map(p => face.surface.point(p[0], p[1])));
 
 
 }
@@ -54,29 +59,29 @@ export default function(face) {
 function analyzeCurvature(nurbs, triangles) {
 
 
-  nurbs
+  // nurbs
+  //
+  // const data = nurbs._data;
+  //
+  // for (let i = 1; i < data.knotsU.length - 2) {
+  //   const u = data.knotsU[i];
+  // }
+  //
+  // for (let tr of triangles) {
+  //
+  //   getCheckPoint(tr, data.knotsU)
+  //
+  //
+  //
+  // }
+  //
+  //
+  //
+  // const umax = data.knotsU[data.knotsU.length - 1];
+  // const umin = data.knotsU[0];
+  // const vmax = data.knotsV[data.knotsV.length - 1];
+  // const vmin = data.knotsV[0];
 
-  const data = nurbs._data;
-
-  for (let i = 1; i < data.knotsU.length - 2) {
-    const u = data.knotsU[i];
-  }
-
-  for (let tr of triangles) {
-
-    getCheckPoint(tr, data.knotsU)
-
-
-
-  }
-
-
-
-  const umax = data.knotsU[data.knotsU.length - 1];
-  const umin = data.knotsU[0];
-  const vmax = data.knotsV[data.knotsV.length - 1];
-  const vmin = data.knotsV[0];
-
-
+  return triangles;
 
 }
