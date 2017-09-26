@@ -179,18 +179,28 @@ function createTexture(brepFace) {
   // ctx.lineTo(105, 25);
   // ctx.lineTo(25, 105);
   // ctx.fill();
+  ctx.scale(w,h);
+  ctx.fillStyle = 'red';
+  ctx.beginPath();
 
-  brepFace.
-  for (let i = 0; i < w; i++) {
-    for (let j = 0; j < h; j++) {
-
+  for (let loop of brepFace.loops) {
+    for (let he of loop.halfEdges) {
+      const uvs = he.edge.curve.verb.tessellate().map(p => brepFace.verb.closestParam(p));
+      if (he.inverted) {
+        uvs.reverse();
+      }
+      let uv = uvs[0];
+      ctx.moveTo(uv[0], uv[1]);
+      for (let i = 1; i < uv.length; ++i) {
+        uv = uvs[i];
+        ctx.lineTo(uv[0], uv[1]);
+      }
     }
   }
 
-  ctx.fillStyle = 'red'
-  ctx.beginPath();
+
   ctx.moveTo(55, 55);
-  ctx.lineTo(175, 75);
+
   ctx.lineTo(75, 175);
   ctx.fill();
 
@@ -273,195 +283,3 @@ function threeV(v) {
 }
 
 
-export function pip( pt, loop, surface, uvPt ) {
-
-  function VertexResult(vertex) {
-    this.inside = true;
-    this.vertex = vertex;
-  }
-
-  function EdgeResult(edge) {
-    this.inside = true;
-    this.edge = edge;
-  }
-
-  if (!uvPt) {
-    uvPt = surface.toUV(pt);
-  }
-
-  function isLine(edge) {
-    return !edge.edge || !edge.edge.curve || edge.edge.curve.isLine;
-  }
-
-  const uvCoords = new Map();
-  for( let edge of loop.halfEdges ) {
-    const uv = surface.toUV(edge.vertexA.point);
-    if (math.areEqual(uvPt.y, uv.y, TOLERANCE) && math.areEqual(uvPt.x, uv.x, TOLERANCE)) {
-      return new VertexResult(edge.vertexA);
-    }
-    uvCoords.set(edge.vertexA, uv);
-  }
-
-  const grads = [];
-  for( let edge of loop.halfEdges ) {
-    const a = uvCoords.get(edge.vertexA);
-    const b = uvCoords.get(edge.vertexB);
-    let dy;
-    if (isLine(edge)) {
-      dy = b.y - a.y;
-    } else {
-      const tangent = edge.edge.curve.tangent(edge.vertexA.point);
-      dy = surface.toUV(tangent).y;
-      if (edge.edge.invertedToCurve) {
-        dy *= -1;
-      }
-    }
-    if (math.areEqual(dy, 0, TOLERANCE)) {
-      grads.push(0)
-    } else if (dy > 0) {
-      grads.push(1)
-    } else {
-      grads.push(-1)
-    }
-  }
-
-  function nextGrad(start) {
-    for(let i = 0; i < grads.length; ++i) {
-      const idx = (i + start + 1) % grads.length;
-      if (grads[idx] != 0) {
-        return grads[idx];
-      }
-    }
-  }
-
-  function prevGrad(start) {
-    for(let i = 0; i < grads.length; ++i) {
-      const idx = (start - i - 1 + grads.length) % grads.length;
-      if (grads[idx] != 0) {
-        return grads[idx];
-      }
-    }
-  }
-
-  const skip = new Set();
-
-  let ray = null;
-  let inside = false;
-  for( let i = 0; i < loop.halfEdges.length; ++i) {
-
-    const edge = loop.halfEdges[i];
-
-    var shouldBeSkipped = skip.has(edge.vertexA) || skip.has(edge.vertexB);
-
-    const a = uvCoords.get(edge.vertexA);
-    const b = uvCoords.get(edge.vertexB);
-
-    const aEq = math.areEqual(uvPt.y, a.y, TOLERANCE);
-    const bEq = math.areEqual(uvPt.y, b.y, TOLERANCE);
-
-    if (aEq) {
-      skip.add(edge.vertexA);
-    }
-    if (bEq) {
-      skip.add(edge.vertexB);
-    }
-
-    if (math.areVectorsEqual(a, b, TOLERANCE)) {
-      console.error('unable to classify invalid polygon');
-    }
-
-    if (isLine(edge)) {
-      let edgeLowPt  = a;
-      let edgeHighPt = b;
-
-      let edgeDx = edgeHighPt.x - edgeLowPt.x;
-      let edgeDy = edgeHighPt.y - edgeLowPt.y;
-
-      if (aEq && bEq) {
-        if ( ( ( edgeHighPt.x <= uvPt.x ) && ( uvPt.x <= edgeLowPt.x ) ) ||
-          ( ( edgeLowPt.x <= uvPt.x ) && ( uvPt.x <= edgeHighPt.x ) ) ) {
-          return new EdgeResult(edge);
-        } else {
-          continue;
-        }
-      }
-
-      if (shouldBeSkipped) {
-        continue;
-      }
-
-      if ( edgeDy < 0 ) {
-        edgeLowPt  = b; edgeDx = - edgeDx;
-        edgeHighPt = a; edgeDy = - edgeDy;
-      }
-      if (!aEq && !bEq && ( uvPt.y < edgeLowPt.y || uvPt.y > edgeHighPt.y ) ) {
-        continue;
-      }
-
-      if (bEq) {
-        if (grads[i] * nextGrad(i) < 0) {
-          continue;
-        }
-      } else if (aEq) {
-        if (grads[i] * prevGrad(i) < 0) {
-          continue;
-        }
-      }
-
-      let perpEdge = edgeDx * (uvPt.y - edgeLowPt.y) - edgeDy * (uvPt.x - edgeLowPt.x);
-      if ( math.areEqual(perpEdge, 0, TOLERANCE) ) return new EdgeResult(edge);		// uvPt is on contour ?
-      if ( perpEdge < 0 ) {
-        continue;
-      }
-      inside = ! inside;		// true intersection left of uvPt
-
-    } else {
-
-      if (aEq && bEq) {
-        if (math.areEqual(edge.edge.curve.closestDistanceToPoint(pt), 0, TOLERANCE)) {
-          return new EdgeResult(edge);
-        } else {
-          continue;
-        }
-      }
-
-      if (shouldBeSkipped) {
-        continue;
-      }
-
-      if (bEq) {
-        if (grads[i] * nextGrad(i) < 0) {
-          continue;
-        }
-      } else if (aEq) {
-        if (grads[i] * prevGrad(i) < 0) {
-          continue;
-        }
-      }
-
-      if (math.areEqual(edge.edge.curve.closestDistanceToPoint(pt), 0, TOLERANCE)) {
-        return new EdgeResult(edge);
-      }
-
-      if (ray == null) {
-
-        let rayEnd = pt.copy();
-        //fixme!!
-        rayEnd.x = 1000000;//surface.fromUV(surface.domainU()[1]).x;
-        ray = edge.edge.curve.createLinearNurbs(pt, rayEnd);
-      }
-
-      const hits = edge.edge.curve.intersect(ray);
-
-      for (let hit of hits) {
-        //if ray just touches
-        const onlyTouches = math.areEqual(edge.edge.curve.tangent(hit).normalize().y, 0, TOLERANCE);
-        if (!onlyTouches) {
-          inside = ! inside;
-        }
-      }
-    }
-  }
-
-  return	{inside};
-}
