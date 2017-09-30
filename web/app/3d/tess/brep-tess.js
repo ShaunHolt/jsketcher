@@ -1,93 +1,84 @@
-import libtess from 'libtess'
+import PIP from "./pip";
+import earcut from 'earcut'
 import Vector from "../../math/vector";
-import {Face} from "../../brep/topo/face";
-import BrepBuilder from "../../brep/brep-builder";
 
 export default function A(face) {
-  function asUV(p) {
-    let uv = face.surface.verb.closestParam(p);
-    uv.push(0);
-    return uv;
+  function uv(p) {
+    return face.surface.verb.closestParam(p);
   }
 
-  function vertexCallback(data, out) {
-    out.push(data);
-  }
-
-
-  const tessy = new libtess.GluTesselator();
-  // tessy.gluTessProperty(libtess.gluEnum.GLU_TESS_WINDING_RULE, libtess.windingRule.GLU_TESS_WINDING_POSITIVE);
-  tessy.gluTessCallback(libtess.gluEnum.GLU_TESS_VERTEX_DATA, vertexCallback);
+  const pt = ([x, y]) => ({x, y});
 
   const mirrored = isMirrored(face.surface);
 
-  if (mirrored) {
-    tessy.gluTessNormal(0, 0, -1);
-  } else {
-    tessy.gluTessNormal(0, 0, 1);
-  }
-
-  const params = [];
-  tessy.gluTessBeginPolygon(params);
-
+  let loops = [];
   for (let loop of face.loops) {
-    tessy.gluTessBeginContour();
+    let pipLoop = [];
+    loops.push(pipLoop);
     for (let e of loop.halfEdges) {
-      let points = e.edge.curve.verb.tessellate();
-      if (e.inverted) {
-        points.reverse();
+      let curvePoints = e.edge.curve.verb.tessellate(1000);
+      let inverted = mirrored !== e.inverted;
+      if (inverted) {
+        curvePoints.reverse();
       }
-      points.pop();
-      for (let point of points) {
-        let uv = asUV(point);
-        tessy.gluTessVertex(uv, uv);
+      curvePoints.pop();
+      for (let point of curvePoints) {
+        let p = pt(uv(point));
+        pipLoop.push(p);
       }
     }
-    tessy.gluTessEndContour();
   }
-  tessy.gluTessEndPolygon();
+
+  let tess = face.surface.verb.tessellate();
+  let steinerPoints = tess.uvs.map(uv => pt(uv));
+
+  let [outer, ...inners] = loops;
+  inners.forEach(inner => inner.reverse());
+  let pip = PIP(outer, inners);
+  steinerPoints = steinerPoints.filter(pt => pip(pt).inside);
+
+  let points = [];
+  let holes = [];
 
 
-  const triangles = [];
-  for (let i = 0;  i < params.length; i += 3 ) {
-    const a = params[i];
-    const b = params[i + 1];
-    const c = params[i + 2];
-    triangles.push([a, b, c]);
+  function pushLoop(loop) {
+    for (let pt of loop) {
+      points.push(pt.x);
+      points.push(pt.y);
+    }
   }
-  analyzeCurvature(face.surface.verb, triangles);
 
-  return triangles.map(t => t.map(p => face.surface.point(p[0], p[1])));
-}
+  pushLoop(outer);
 
-function analyzeCurvature(nurbs, triangles) {
+  for (let inner of inners) {
+    holes.push(points.length / 2);
+    pushLoop(inner);
+  }
 
+  for (let sp of steinerPoints) {
+    holes.push(points.length / 2);
+    points.push(sp.x);
+    points.push(sp.y);
+  }
 
-  // nurbs
-  //
-  // const data = nurbs._data;
-  //
-  // for (let i = 1; i < data.knotsU.length - 2) {
-  //   const u = data.knotsU[i];
-  // }
-  //
-  // for (let tr of triangles) {
-  //
-  //   getCheckPoint(tr, data.knotsU)
-  //
-  //
-  //
-  // }
-  //
-  //
-  //
-  // const umax = data.knotsU[data.knotsU.length - 1];
-  // const umin = data.knotsU[0];
-  // const vmax = data.knotsV[data.knotsV.length - 1];
-  // const vmin = data.knotsV[0];
+  let scaledPoints = points.map(p => p * 1000);
 
-  return triangles;
+  let trs = earcut(scaledPoints, holes);
 
+  let output = [];
+
+  function indexToPoint(i) {
+    return new Vector().set3(face.surface.verb.point(points[i * 2], points[i * 2 + 1]));
+  }
+
+  for (let i = 0; i < trs.length; i += 3) {
+    const tr = [trs[i], trs[i + 1], trs[i + 2]];
+
+    __DEBUG__.AddPointPolygon(tr.map( ii => new Vector(scaledPoints[ii * 2], scaledPoints[ii * 2 + 1], 0) ));
+
+    output.push(tr.map(i => indexToPoint(i)));
+  }
+  return output;
 }
 
 export function isMirrored(surface) {
