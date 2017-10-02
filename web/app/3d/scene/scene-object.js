@@ -56,8 +56,7 @@ export function createSolidMaterial(skin) {
     shininess: 0,
     polygonOffset : true,
     polygonOffsetFactor : 1,
-    polygonOffsetUnits : 2,
-    //side : THREE.DoubleSide
+    polygonOffsetUnits : 2
   }, skin));
 }
 
