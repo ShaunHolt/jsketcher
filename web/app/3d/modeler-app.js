@@ -113,8 +113,14 @@ App.prototype.test1 = function() {
 App.prototype.cylTest = function() {
   
     const cylinder1 = BREPPrimitives.cylinder(200, 500);
-    this.addShellOnScene(cylinder1);
-  }
+    const cylinder2 = BREPPrimitives.cylinder(200, 500, Matrix3.rotateMatrix(90, AXIS.Y, ORIGIN));
+
+  let result = this.TPI.brep.bool.subtract(cylinder1, cylinder2);
+
+    // this.addShellOnScene(cylinder1);
+    // this.addShellOnScene(cylinder2);
+  this.addShellOnScene(result);
+};
 
 App.prototype.test2 = function() {
   
@@ -213,8 +219,8 @@ App.prototype.test5 = function() {
 };
 
 App.prototype.scratchCode = function() {
-  const app = this;
-  this.test5();
+  // const app = this;
+  this.test3();
   // this.cylTest();
 
 

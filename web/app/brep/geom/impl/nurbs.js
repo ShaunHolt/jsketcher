@@ -36,12 +36,39 @@ export class NurbsCurve extends Curve {
   }
 
   splitByParam(u) {
-    const split = this.verb.split(u);
-    if (!math.equal(this.verb.closestParam(split[0].point(0)),0)) {
-      // throw 'wrong split';          
-      console.error('wrong split')
+    let split = verb.eval.Divide.curveSplit(this.verb._data, u);
+    split.forEach(n => {
+      let min = n.knots[0];
+      let max = n.knots[n.knots.length - 1];
+      let d = max - min;
+      for (let i = 0; i < n.knots.length; i++) {
+        let val = n.knots[i];
+        if (val === min) {
+          n.knots[i] = 0;
+        } else if (val === max) {
+          n.knots[i] = 1;
+        } else {
+          n.knots[i] = (val - min) / d;
+        }
+      }
+    });
+    split = split.map(c => new verb.geom.NurbsCurve(c));
+    const splitCheck = (split) => {
+      return (
+        math.equal(this.verb.closestParam(split[0].point(1)), this.verb.closestParam(split[1].point(0))) &&
+        math.equal(this.verb.closestParam(split[0].point(0)), 0) &&
+        math.equal(this.verb.closestParam(split[0].point(1)), u) &&
+        math.equal(this.verb.closestParam(split[1].point(0)), u) &&
+        math.equal(this.verb.closestParam(split[1].point(1)), 1)
+      )
+    };
+    if (!splitCheck(split)) {
+      throw 'wrong split';
     }
-    return this.verb.split(u).map(v => new NurbsCurve(v));
+    // if (!splitCheck(split)) {
+    //   split.reverse();
+    // }
+    return split.map(v => new NurbsCurve(v));
   }
 
   invert() {
@@ -241,8 +268,8 @@ function verb_surface_isec(nurbs1, nurbs2, tol) {
 function verb_curve_isec(curve1, curve2, tol) {
 
   let result = [];
-  let segs1 = curve1.tessellate();
-  let segs2 = curve2.tessellate();
+  let segs1 = curve1.tessellate(100000);
+  let segs2 = curve2.tessellate(100000);
 
   for (let i = 0; i < segs1.length - 1; i++) {
     let a1 = segs1[i];
