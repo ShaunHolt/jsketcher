@@ -50,7 +50,7 @@ class HalfEdge extends TopoObject {
   }
 
   twins() {
-    return this.manifold === null ? [this.twin()] : [this.twin(), ...this.manifold];
+    return this.manifold === null ? [this.twin()] : [this.twin(), ...this.manifold.map(me => me.twin())];
   }
 
   tangent(point) {
@@ -74,7 +74,7 @@ class HalfEdge extends TopoObject {
     if (this.manifold === null) {
       this.manifold = [];
     }
-    if (this.manifold.indexOf(he) !== -1) {
+    if (this.manifold.indexOf(he) === -1) {
       this.manifold.push(he);
     }
     he.manifoldHolder = this;

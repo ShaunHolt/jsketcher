@@ -70,23 +70,27 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
     faceData.initGraph();
   }
 
-  const faces = [];
-  
-  const newLoops = new Set();
   for (let faceData of facesData) {
-    faceData.resultLoops = detectLoops(faceData.face);
-    for (let loop of faceData.resultLoops) {
-      newLoops.add(loop)
+    faceData.detectedLoops = detectLoops(faceData.face);
+  }
+  
+  let detectedLoops = new Set();
+  for (let faceData of facesData) {
+    for (let loop of faceData.detectedLoops) {
+      detectedLoops.add(loop);
     }
   }
-  let invalidLoops = invalidateLoops(newLoops);
 
+  // let invalidLoops = invalidateLoops(detectedLoops);
+  
+  let faces = [];
+  
   for (let faceData of facesData) {
-    faceData.resultLoops = faceData.resultLoops.filter(l => !invalidLoops.has(l));
+    // faceData.detectedLoops = faceData.detectedLoops.filter(l => !invalidLoops.has(l));
+    loopsToFaces(faceData.face, faceData.detectedLoops, faces);
   }
-  for (let faceData of facesData) {
-    loopsToFaces(faceData.face, faceData.resultLoops, faces);
-  }
+
+  faces = filterFaces(faces);
   
   
   const result = new Shell();
@@ -173,6 +177,77 @@ export function mergeVertices(shell1, shell2) {
   }
 }
 
+
+function filterFaces(faces) {
+
+
+  return faces.filter(raycastFilter);
+  
+  
+  //
+  // function isFaceContainNewEdge(face) {
+  //   for (let e of face.edges) {
+  //     if (isNewNM(e)) {
+  //       return true;
+  //     }
+  //   }
+  //   return false;
+  // }
+  //
+  // const validFaces = new Set(faces);
+  // const result = new Set();
+  // for (let face of faces) {
+  //   __DEBUG__.Clear();
+  //   __DEBUG__.AddFace(face);
+  //   traverseFaces(face, validFaces, (it) => {
+  //     if (result.has(it) || isFaceContainNewEdge(it)) {
+  //       result.add(face);
+  //       return true;
+  //     }
+  //   });
+  // }
+  // return result;
+}
+
+function raycastFilter(face, shell, opType) {
+  
+  let testPt = getPointOnFace(face);
+  let testCurve = ;
+  
+  
+  for (let testFace of face.faces) {
+    let pts = testFace.surface.intersectCurve(testCurve)
+    
+  }
+  
+  
+  
+}
+
+
+function traverseFaces(face, validFaces, callback) {
+  const stack = [face];
+  const seen = new Set();
+  while (stack.length !== 0) {
+    face = stack.pop();
+    if (seen.has(face)) continue;
+    seen.add(face);
+    if (callback(face) === true) {
+      return;
+    }
+    if (!validFaces.has(face)) continue;
+    for (let loop of face.loops) {
+      for (let halfEdge of loop.halfEdges) {
+        for (let twin of halfEdge.twins()) {
+          if (validFaces.has(twin.loop.face)) {
+            stack.push(twin.loop.face)
+          }
+        }
+      }
+    }
+  }
+}
+
 function invalidateLoops(newLoops) {
   // __DEBUG__.Clear();
   const invalid = new Set();
@@ -198,23 +273,23 @@ function invalidateLoops(newLoops) {
     }
   }
   
-  const seen = new Set();
-  
-  const stack = Array.from(invalid);
-  
-  while (stack.length !== 0) {
-    let loop = stack.pop();
-    if (!seen.has(loop)) continue;
-    seen.add(loop);
-      
-    for (let he of loop.halfEdges) {
-      let twins = he.twins();
-      for (let twin of twins) {
-        invalid.add(twin.loop);
-        stack.push(twin.loop); 
-      }        
-    }
-  }
+  // const seen = new Set();
+  //
+  // const stack = Array.from(invalid);
+  //
+  // while (stack.length !== 0) {
+  //   let loop = stack.pop();
+  //   if (!seen.has(loop)) continue;
+  //   seen.add(loop);
+  //    
+  //   for (let he of loop.halfEdges) {
+  //     let twins = he.twins();
+  //     for (let twin of twins) {
+  //       invalid.add(twin.loop);
+  //       stack.push(twin.loop); 
+  //     }        
+  //   }
+  // }
   return invalid;  
 }
 
@@ -570,6 +645,18 @@ EdgeSolveData.transfer = function(from, to) {
 
 function isNew(edge) {
   return EdgeSolveData.get(edge).newEdgeFlag === true
+}
+
+function isNewNM(edge) {
+  if (edge.manifold === null) {
+    return isNew(edge);
+  }
+  for (let me of edge.manifold) {
+    if (isNew(me)) {
+      return true;
+    }
+  }
+  return isNew(edge); 
 }
 
 function Node(vertex, edge, curve, u) {
