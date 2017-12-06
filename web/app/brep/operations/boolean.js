@@ -4,12 +4,14 @@ import {Loop} from '../topo/loop';
 import {Shell} from '../topo/shell';
 import {Vertex} from '../topo/vertex';
 import {evolveFace} from './evolve-face'
+import PIP from '../../3d/tess/pip';
 import * as math from '../../math/math';
 import {eqEps, eqTol, TOLERANCE, ueq, veq} from '../geom/tolerance';
+import {Ray} from "../geom/ray";
 
 const DEBUG = {
-  OPERANDS_MODE: true,
-  LOOP_DETECTION: true,
+  OPERANDS_MODE: false,
+  LOOP_DETECTION: false,
   FACE_FACE_INTERSECTION: false,
   NOOP: () => {}
 };
@@ -49,6 +51,7 @@ export function invert( shell ) {
       loop.link();
     }
   }
+  shell.data.inverted = !shell.data.inverted;
   BREPValidator.validateToConsole(shell);
 }
 
@@ -90,7 +93,7 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
     loopsToFaces(faceData.face, faceData.detectedLoops, faces);
   }
 
-  faces = filterFaces(faces);
+  faces = filterFaces(faces, shell1, shell2, type !== TYPE.UNION);
   
   
   const result = new Shell();
@@ -177,7 +180,6 @@ export function mergeVertices(shell1, shell2) {
   }
 }
 
-
 function filterFacesByInvalidEnclose(faces) {
 
   function encloses(f1, f2, testee, overEdge) {
@@ -229,10 +231,81 @@ function filterFacesByInvalidEnclose(faces) {
       }
     }
   }
-  return faces.filter(f => !invalidFaces.has(f));
+  return Array.from(faces).filter(f => !invalidFaces.has(f));
 }
 
-function filterFaces(faces) {
+function rayCastSolid(ray, solid) {
+  __DEBUG__.AddVerbCurve(ray.curve, 0xffffff);
+  let intersectionCounter = 0;
+  for (let face of solid.faces) {
+    __DEBUG__.AddFace(face, 0xffff00);
+    let pip = face.data[MY].pip;
+    let uvs = face.surface.intersectWithCurve(ray.curve);
+    let closestDistance = -1;
+    let 
+    for (let uv of uvs) {
+      let normal = face.surface.normalUV(uv[0], uv[1]);
+      if (eqTol(normal.dot(ray.dir), 0)) {
+        continue;
+      }
+      let pt = face.surface.createWorkingPoint(uv, face.surface.point(uv[0], uv[1])); 
+      if (pip(pt).inside) {
+        intersectionCounter ++;      
+      }
+    }    
+  }
+  let inside = intersectionCounter % 2 !== 0;
+  if (solid.data.inverted) {
+    inside = !inside;
+  }
+  return inside;
+}
+
+function guessPointOnFace(face) {
+  //TODO:
+  let {pip, workingPolygon: [poly]} = createPIPForFace(face);
+  let [a, b] = poly;
+  let ab = b.minus(a); 
+  let len = ab.length();
+  let unit = ab.normalize();
+  let res = a.plus(unit.multiply(len * 0.5));
+  let offVec = unit.multiply(100); //???
+  res.x += - offVec.y;
+  res.y +=   offVec.x;
+
+  if (!pip(res).inside) {
+    throw 'bummer';
+  }
+  return face.surface.workingPointTo3D(res);
+}
+
+function filterByRayCast(faces, a, b, isIntersection) {
+  
+  let result = [];
+  for (let face of faces) {
+    __DEBUG__.Clear();
+    __DEBUG__.AddFace(face, 0x00ff00);
+    let pt = guessPointOnFace(face);
+    let ray = new Ray(pt, face.surface.normal(pt), 3000);
+
+    let insideA = face.data.__origin.shell === a || rayCastSolid(ray, a);
+    let insideB = face.data.__origin.shell === b || rayCastSolid(ray, b);
+    if (isIntersection) {
+      if (insideA && insideB) {
+        result.push(face);
+      }
+    } else {
+      if (insideA || insideB) {
+        result.push(face);
+      }
+    }
+  }
+  return result;
+}
+
+function filterFaces(faces, a, b, isIntersection) {
+
+  return filterByRayCast(faces, a, b, isIntersection);
 
   function isFaceContainNewEdge(face) {
     for (let e of face.edges) {
@@ -246,8 +319,8 @@ function filterFaces(faces) {
   const validFaces = new Set(faces);
   const result = new Set();
   for (let face of faces) {
-    // __DEBUG__.Clear();
-    // __DEBUG__.AddFace(face);
+    __DEBUG__.Clear();
+    __DEBUG__.AddFace(face);
     traverseFaces(face, validFaces, (it) => {
       if (result.has(it) || isFaceContainNewEdge(it)) {
         result.add(face);
@@ -255,7 +328,7 @@ function filterFaces(faces) {
       }
     });
   }
-  return filterFacesByInvalidEnclose(result);
+  return result;//filterFacesByInvalidEnclose(result);
 }
 
 function traverseFaces(face, validFaces, callback) {
@@ -573,7 +646,7 @@ function intersectCurveWithEdge(curve, edge, result) {
       vertex = vertexFactory.create(point.p0);
     }
 
-    __DEBUG__.AddVertex(vertex);
+    // __DEBUG__.AddVertex(vertex);
 
     result.push(new Node(vertex, edge, curve, u1));
   }
@@ -748,6 +821,16 @@ class SolveData {
   }
 }
 
+
+function createPIPForFace(face) {
+  let workingPolygon = [face.outerLoop, ...face.innerLoops].map(loop => loop.tess().map(pt => face.surface.workingPoint(pt)));
+  let [inner, ...outers] = workingPolygon;
+  return {
+    pip: PIP(inner, outers),
+    workingPolygon
+  }
+}
+
 class FaceSolveData {
   constructor(face) {
     this.face = face;
@@ -755,6 +838,7 @@ class FaceSolveData {
     face.innerLoops.push(this.loopOfNew);
     this.vertexToEdge = new Map();
     this.graphEdges = [];
+    Object.assign(this, createPIPForFace(face))
   }
 
   initGraph() {
