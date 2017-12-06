@@ -6,8 +6,8 @@ import {Vertex} from '../topo/vertex';
 import {evolveFace} from './evolve-face'
 import PIP from '../../3d/tess/pip';
 import * as math from '../../math/math';
-import {eqEps, eqTol, TOLERANCE, ueq, veq} from '../geom/tolerance';
-import {Ray} from "../geom/ray";
+import {eqEps, eqTol, eqSqTol, TOLERANCE, ueq, veq} from '../geom/tolerance';
+import {Ray} from "../utils/ray";
 
 const DEBUG = {
   OPERANDS_MODE: false,
@@ -234,27 +234,69 @@ function filterFacesByInvalidEnclose(faces) {
   return Array.from(faces).filter(f => !invalidFaces.has(f));
 }
 
-function rayCastSolid(ray, solid) {
-  __DEBUG__.AddVerbCurve(ray.curve, 0xffffff);
-  let intersectionCounter = 0;
+function isPointInsideSolid(pt, initDir, solid) {
+  let ray = new Ray(pt, initDir, 3000);
+  const pertrubStep = 5;
+  for (let i = 0; i < 360; i+=pertrubStep) {
+    let res = rayCastSolidImpl(ray, solid);
+    if (res !== null) {
+      return res;    
+    }
+    ray.pertrub(pertrubStep);
+  }
+  return false; 
+}
+
+function rayCastSolidImpl(ray, solid) {
+  __DEBUG__.AddCurve(ray.curve, 0xffffff);
+  let closestDistanceSq = -1;
+  let inside = false;
+  let hitEdge = false;
+
+  let edgeDistancesSq = [];
+  for (let e of solid.edges) {
+    let points = e.curve.intersectCurve(ray.curve, TOLERANCE);
+    for (let {p0} of points) {
+      edgeDistancesSq.push(ray.pt.distanceToSquared(p0));
+    }  
+  }
+
+
+
   for (let face of solid.faces) {
     __DEBUG__.AddFace(face, 0xffff00);
     let pip = face.data[MY].pip;
     let uvs = face.surface.intersectWithCurve(ray.curve);
-    let closestDistance = -1;
-    let 
+    
     for (let uv of uvs) {
       let normal = face.surface.normalUV(uv[0], uv[1]);
-      if (eqTol(normal.dot(ray.dir), 0)) {
+      let dotPr = normal.dot(ray.dir);
+      if (eqTol(dotPr, 0)) {
         continue;
       }
-      let pt = face.surface.createWorkingPoint(uv, face.surface.point(uv[0], uv[1])); 
-      if (pip(pt).inside) {
-        intersectionCounter ++;      
+      let pt = face.surface.point(uv[0], uv[1]);
+      let wpt = face.surface.createWorkingPoint(uv, pt); 
+      let pipClass = pip(wpt);
+      if (pipClass.inside) {
+        let distSq = ray.pt.distanceToSquared(pt);
+         if (closestDistanceSq === -1 || distSq < closestDistanceSq) {
+          hitEdge = false; 
+          for (let edgeDistSq of edgeDistancesSq) {
+            if (eqSqTol(edgeDistSq, distSq)) {
+              hitEdge = true;
+            }    
+          }
+          closestDistanceSq = distSq;
+          inside = dotPr > 0;
+        }
       }
     }    
   }
-  let inside = intersectionCounter % 2 !== 0;
+
+  if (hitEdge) {
+    return null;
+  }
+
   if (solid.data.inverted) {
     inside = !inside;
   }
@@ -286,10 +328,10 @@ function filterByRayCast(faces, a, b, isIntersection) {
     __DEBUG__.Clear();
     __DEBUG__.AddFace(face, 0x00ff00);
     let pt = guessPointOnFace(face);
-    let ray = new Ray(pt, face.surface.normal(pt), 3000);
+    let normal = face.surface.normal(pt);
 
-    let insideA = face.data.__origin.shell === a || rayCastSolid(ray, a);
-    let insideB = face.data.__origin.shell === b || rayCastSolid(ray, b);
+    let insideA = face.data.__origin.shell === a || isPointInsideSolid(pt, normal, a);
+    let insideB = face.data.__origin.shell === b || isPointInsideSolid(pt, normal, b);
     if (isIntersection) {
       if (insideA && insideB) {
         result.push(face);

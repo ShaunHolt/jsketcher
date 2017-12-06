@@ -365,7 +365,7 @@ export class NurbsSurface extends Surface {
   }
   
   intersectWithCurve(curve) {
-    return verb.geom.Intersect.curveAndSurface(curve, this.verb, TOLERANCE).map(({uv}) => uv);
+    return verb.geom.Intersect.curveAndSurface(curve.impl.verb, this.verb, TOLERANCE).map(({uv}) => uv);
   }
 }
 
