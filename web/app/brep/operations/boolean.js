@@ -270,31 +270,41 @@ function rayCastSolidImpl(ray, solid) {
       __DEBUG__.AddFace(face, 0xffff00);
     }
     let pip = face.data[MY].pip;
-    let uvs = face.surface.intersectWithCurve(ray.curve);
-    
-    for (let uv of uvs) {
-      let normal = face.surface.normalUV(uv[0], uv[1]);
-      let dotPr = normal.dot(ray.dir);
-      if (eqTol(dotPr, 0)) {
-        continue;
-      }
-      let pt = face.surface.point(uv[0], uv[1]);
+    function isPointinsideFace(uv, pt) {
       let wpt = face.surface.createWorkingPoint(uv, pt); 
       let pipClass = pip(wpt);
-      if (pipClass.inside) {
-        let distSq = ray.pt.distanceToSquared(pt);
-         if (closestDistanceSq === -1 || distSq < closestDistanceSq) {
-          hitEdge = false; 
-          for (let edgeDistSq of edgeDistancesSq) {
-            if (eqSqTol(edgeDistSq, distSq)) {
-              hitEdge = true;
-            }    
-          }
-          closestDistanceSq = distSq;
-          inside = dotPr > 0;
+      return pipClass.inside;
+    }
+
+    let originUv = face.surface.param(ray.pt);
+    let originPt = face.surface.point(originUv[0], originUv[1]);
+    //eqSqTol(0, originPt.distanceToSquared(ray.pt)) && isPointinsideFace(originUv, originPt)
+    if (false ) {
+      inside = true;
+    } else {
+      let uvs = face.surface.intersectWithCurve(ray.curve);     
+      for (let uv of uvs) {
+        let normal = face.surface.normalUV(uv[0], uv[1]);
+        let dotPr = normal.dot(ray.dir);
+        if (eqTol(dotPr, 0)) {
+          continue;
         }
-      }
-    }    
+        let pt = face.surface.point(uv[0], uv[1]);
+        if (isPointinsideFace(pt)) {
+          let distSq = ray.pt.distanceToSquared(pt);
+           if (closestDistanceSq === -1 || distSq < closestDistanceSq) {
+            hitEdge = false; 
+            for (let edgeDistSq of edgeDistancesSq) {
+              if (eqSqTol(edgeDistSq, distSq)) {
+                hitEdge = true;
+              }    
+            }
+            closestDistanceSq = distSq;
+            inside = dotPr > 0;
+          }
+        }
+      } 
+    }
   }
 
   if (hitEdge) {

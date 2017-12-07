@@ -300,6 +300,10 @@ export class NurbsSurface extends Surface {
     return this.normalUV(0.5, 0.5);
   }
 
+  param(point) {
+    return this.verb.closestParam(point.data());
+  }
+
   point(u, v) {
     return pt(this.verb.point(u, v));
   }
