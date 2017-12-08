@@ -18,6 +18,13 @@ const DEBUG = {
   NOOP: () => {}
 };
 
+const FILTER_STRATEGIES = {
+  RAY_CAST: 'RAY_CAST',
+  NEW_EDGES: 'NEW_EDGES',
+};
+
+const FILTER_STRATEGY = FILTER_STRATEGIES.NEW_EDGES; 
+
 const TYPE = {
   UNION: 'UNION',
   INTERSECT: 'INTERSECT'
@@ -358,7 +365,16 @@ function filterByRayCast(faces, a, b, isIntersection) {
 
 function filterFaces(faces, a, b, isIntersection) {
 
-  return filterByRayCast(faces, a, b, isIntersection);
+  if (FILTER_STRATEGY === FILTER_STRATEGIES.RAY_CAST) {
+    return filterByRayCast(faces, a, b, isIntersection);
+  } else if (FILTER_STRATEGY === FILTER_STRATEGIES.NEW_EDGES) {
+    return filterFacesByNewEdges(faces, a, b, isIntersection);
+  } else {
+    throw 'unsupported';
+  }
+}
+
+function filterFacesByNewEdges(faces) {
 
   function isFaceContainNewEdge(face) {
     for (let e of face.edges) {
@@ -372,8 +388,8 @@ function filterFaces(faces, a, b, isIntersection) {
   const validFaces = new Set(faces);
   const result = new Set();
   for (let face of faces) {
-    __DEBUG__.Clear();
-    __DEBUG__.AddFace(face);
+    // __DEBUG__.Clear();
+    // __DEBUG__.AddFace(face);
     traverseFaces(face, validFaces, (it) => {
       if (result.has(it) || isFaceContainNewEdge(it)) {
         result.add(face);
@@ -381,7 +397,7 @@ function filterFaces(faces, a, b, isIntersection) {
       }
     });
   }
-  return result;//filterFacesByInvalidEnclose(result);
+  return result;
 }
 
 function traverseFaces(face, validFaces, callback) {
@@ -533,12 +549,16 @@ function intersectEdges(shell1, shell2) {
     points.sort((p1, p2) => p1.u - p2.u);
     let first = points[0];
     let last = points[points.length - 1];
-    if (ueq(first.u, 0) && !first.vertexHolder[0]) {
-      first.vertexHolder[0] = e.halfEdge1.vertexA;
+    if (ueq(first.u, 0)) {
+      // if (!first.vertexHolder[0]) {
+      //   first.vertexHolder[0] = e.halfEdge1.vertexA;
+      // }
       first.skip = true;
     }
-    if (ueq(last.u, 1) && !last.vertexHolder[0]) {
-      last.vertexHolder[0] = e.halfEdge1.vertexB;
+    if (ueq(last.u, 1)) {
+      // if (!last.vertexHolder[0]) {
+      //   last.vertexHolder[0] = e.halfEdge1.vertexB;
+      // }
       last.skip = true;
     }
   }
@@ -554,7 +574,7 @@ function intersectEdges(shell1, shell2) {
       if (skip === true) {
         continue;
       }
-      let split = splitEdgeByVertex(e, vertexHolder[0]);
+      let split = splitEdgeByVertex(e, vertexFactory.create(e.curve.point(u)));
       if (split !== null) {
         e = split[1];
       }
@@ -621,8 +641,6 @@ function intersectFaces(shell1, shell2, operationType) {
         collectNodesOfIntersectionOfFace(curve, face2, nodes);
 
         const newEdges = [];
-        nullifyDegradedNodes(nodes);
-        filterNodes(nodes);
         split(nodes, curve, newEdges);
 
         newEdges.forEach(e => {
@@ -643,18 +661,8 @@ function addNewEdge(face, halfEdge) {
   return true;
 }
 
-function nullifyDegradedNodes(nodes) {
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i];
-    if (n !== null) {
-      if (n.normal === 0) {
-        nodes[i] = null;
-      }
-    }
-  }
-}
-
-function filterNodes(nodes) {
+function filterAndSortNodes(nodes) {
+  nullifyDegradedNodes(nodes);
   for (let i = 0; i < nodes.length; i++) {
     const node1 = nodes[i];
     if (node1 === null) continue;
@@ -663,11 +671,30 @@ function filterNodes(nodes) {
       const node2 = nodes[j];
       if (node2 !== null) {
         if (ueq(node2.u, node1.u)) {
-          if (node1.normal + node2.normal === 0) {
-            nodes[i] = null
+          if (node1.normal + node2.normal !== 0) {
+            nodes[j] = null;
           }
-          nodes[j] = null
         }
+      }
+    }
+  }
+  nodes = nodes.filter(n => n !== null);
+  nodes.sort((n1, n2) => {
+    if (ueq(n1.u, n2.u)) {
+      return n1.normal - n2.normal;       
+    } else {
+      return n1.u - n2.u;
+    }   
+  });
+  return nodes;
+}
+
+function nullifyDegradedNodes(nodes) {
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n !== null) {
+      if (n.normal === 0) {
+        nodes[i] = null;
       }
     }
   }
@@ -708,13 +735,16 @@ function intersectCurveWithEdge(curve, edge, result) {
 }
 
 function split(nodes, curve, result) {
-  nodes = nodes.filter(n => n !== null);
-  nodes.sort((n1, n2) => n1.u - n2.u);
+  nodes = filterAndSortNodes(nodes);
   for (let i = 0; i < nodes.length - 1; i++) {
     let inNode = nodes[i];
     let outNode = nodes[i + 1];
-    if (inNode.normal === -1) {
+    if (inNode.normal === -1 || outNode.normal === 1) {
       continue
+    }
+    if (ueq(inNode.u, outNode.u)) {
+      i++;
+      continue;
     }
     let edgeCurve = curve;
     if (!ueq(inNode.u, 0)) {
@@ -916,10 +946,10 @@ class FaceSolveData {
       this.vertexToEdge.set(he.vertexA, list);
     } else {
       for (let ex of list) {
-        if (he.vertexB === ex.vertexB && isSameEdge(he, ex)) {
-          ex.attachManifold(he);    
-          return; 
-        }          
+        // if (he.vertexB === ex.vertexB && isSameEdge(he, ex)) {
+        //   ex.attachManifold(he);    
+        //   return; 
+        // }          
       }
     }
     list.push(he);
