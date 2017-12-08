@@ -237,8 +237,8 @@ function filterFacesByInvalidEnclose(faces) {
   return Array.from(faces).filter(f => !invalidFaces.has(f));
 }
 
-function isPointInsideSolid(pt, initDir, solid) {
-  let ray = new Ray(pt, initDir, 3000);
+function isPointInsideSolid(pt, normal, solid) {
+  let ray = new Ray(pt, normal, normal, 3000);
   for (let i = 0; i < 1; ++i) {
     let res = rayCastSolidImpl(ray, solid);
     if (res !== null) {
@@ -254,7 +254,7 @@ function rayCastSolidImpl(ray, solid) {
     __DEBUG__.AddCurve(ray.curve, 0xffffff);  
   }
   let closestDistanceSq = -1;
-  let inside = false;
+  let inside = null;
   let hitEdge = false;
 
   let edgeDistancesSq = [];
@@ -278,9 +278,9 @@ function rayCastSolidImpl(ray, solid) {
 
     let originUv = face.surface.param(ray.pt);
     let originPt = face.surface.point(originUv[0], originUv[1]);
-    //eqSqTol(0, originPt.distanceToSquared(ray.pt)) && isPointinsideFace(originUv, originPt)
-    if (false ) {
-      inside = true;
+    if (eqSqTol(0, originPt.distanceToSquared(ray.pt)) && isPointinsideFace(originUv, originPt)) {
+      let normal = face.surface.normalUV(originUv[0], originUv[1]);
+      return normal.dot(ray.normal) > 0;
     } else {
       let uvs = face.surface.intersectWithCurve(ray.curve);     
       for (let uv of uvs) {
@@ -290,7 +290,7 @@ function rayCastSolidImpl(ray, solid) {
           continue;
         }
         let pt = face.surface.point(uv[0], uv[1]);
-        if (isPointinsideFace(pt)) {
+        if (isPointinsideFace(uv, pt)) {
           let distSq = ray.pt.distanceToSquared(pt);
            if (closestDistanceSq === -1 || distSq < closestDistanceSq) {
             hitEdge = false; 
@@ -311,8 +311,8 @@ function rayCastSolidImpl(ray, solid) {
     return null;
   }
 
-  if (solid.data.inverted) {
-    inside = !inside;
+  if (inside === null) {
+    inside = !!solid.data.inverted
   }
   return inside;
 }
