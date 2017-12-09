@@ -83,10 +83,12 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
   initVertexFactory(shell1, shell2);
 
   intersectEdges(shell1, shell2);
-
+  
   initSolveData(shell1, facesData);
   initSolveData(shell2, facesData);
 
+  facesData = mergeOverlappingFaces(facesData)
+  
   intersectFaces(shell1, shell2, type);
 
   for (let faceData of facesData) {
@@ -176,6 +178,78 @@ function detectLoops(face) {
     }
   }
   return loops;
+}
+
+
+
+function mergeOverlappingFaces(facesData) {
+  facesData.loop.link();
+
+  let overlappingTuples = findOverlappingFaces(facesData);
+
+  for (let overlappingTuple of overlappingTuples) {
+    face doMergeOverlappingFaces(overlappingTuple)
+  }
+}
+
+function doMergeOverlappingFaces(dest, source) {
+
+  
+  function createForwardGraph(faceData) {
+    let graph = new Map();
+    faceData.face.edges.forEach(e => graph.set(e.vertexA, e));
+    return graph;
+  }
+
+  function createBackwardGraph(faceData) {
+    let graph = new Map();
+    faceData.face.edges.forEach(e => graph.set(e.vertexB, e));
+    return graph;
+  }
+
+  let destFw = createForwardGraph(dest);
+  let destBw = createBackwardGraph(dest);
+  let sourceFw = createForwardGraph(source);
+  
+  let destVertices = destFw.keys();
+  
+  for (let v of destVertices) {
+    let destEdgeOut = destFw.get(v);
+    let destEdgeIn = destBw.get(v);
+    
+    let tangentOut = destEdgeOut.tangent(v.point);
+    let tangentIn = destEdgeIn.tangent(v.point);
+
+    let normal = dest.face.surface.normal(v.point);
+    
+    let sourceEdges = sourceFw.get(v);
+    for (let sourceEdge of sourceEdges) {
+      
+      if (isSameEdge(sourceEdge, destEdgeOut)) {
+        // support coming soon;
+        throw new CadError('BOOLEAN_INVALID_RESULT', edgeCollisionError(sourceEdge, destEdgeOut));
+      } else if (isSameEdge(sourceEdge, destEdgeIn)) {
+        //annigilation here
+      } else {
+        let sourceTangent = sourceEdge.tangent(v.point);
+        
+        function insideOfVec(vec, test) {
+          return vec.cross(test).dot(normal) < 0;
+        }
+
+        let insideOut = insideOfVec(tangentOut, sourceTangent);
+        let insideIn = insideOfVec(tangentIn, sourceTangent);
+        if (insideOut && insideIn) {
+          
+        }  
+               
+      }
+      
+      
+    }
+  }
+  
+  
 }
 
 export function mergeVertices(shell1, shell2) {
@@ -935,8 +1009,10 @@ class FaceSolveData {
     face.innerLoops.push(this.loopOfNew);
     this.vertexToEdge = new Map();
     this.graphEdges = [];
-    Object.assign(this, createPIPForFace(face));
     this.errors = [];
+    if (FILTER_STRATEGY === FILTER_STRATEGIES.RAY_CAST) {
+      Object.assign(this, createPIPForFace(face));
+    }
   }
 
   initGraph() {
