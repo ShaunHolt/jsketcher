@@ -10,12 +10,14 @@ import {eqEps, eqTol, eqSqTol, TOLERANCE, ueq, veq} from '../geom/tolerance';
 import {Ray} from "../utils/ray";
 import pickPointInside2dPolygon from "../utils/pickPointInPolygon";
 import CadError from "../../utils/errors";
+import {createBoundingNurbs} from "../brep-builder";
 
 const DEBUG = {
   OPERANDS_MODE: false,
   LOOP_DETECTION: false,
   FACE_FACE_INTERSECTION: false,
   RAY_CAST: false,
+  FACE_MERGE: true,
   NOOP: () => {}
 };
 
@@ -83,12 +85,11 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
   initVertexFactory(shell1, shell2);
 
   intersectEdges(shell1, shell2);
+  mergeOverlappingFaces(shell1, shell2, type);
   
   initSolveData(shell1, facesData);
   initSolveData(shell2, facesData);
 
-  facesData = mergeOverlappingFaces(facesData)
-  
   intersectFaces(shell1, shell2, type);
 
   for (let faceData of facesData) {
@@ -185,7 +186,7 @@ function findOverlappingFaces(shell1, shell2) {
 
   function overlapsImpl(face1, face2) {
     function pointOnFace(face, pt) {
-      return face.data[MY].to2d().pip(face.surface.workingPoint(pt)).inside;
+      return face.env2D().pip(face.surface.workingPoint(pt)).inside;
     }
     for (let e1 of face1.edges) {
       if (pointOnFace(face2, e1.vertexA.point)) {
@@ -195,9 +196,9 @@ function findOverlappingFaces(shell1, shell2) {
   }
 
   function overlaps(face1, face2) {
-    let ss1 = face1.asSimpleSurface(); 
-    let ss2 = face2.asSimpleSurface(); 
-    if (ss1 !== undefined && ss2 !== undefined && ss1.TYPE === ss2.TYPE === 'plane' && 
+    let ss1 = face1.surface.simpleSurface; 
+    let ss2 = face2.surface.simpleSurface; 
+    if (ss1 !== null && ss2 !== null && ss1.TYPE === 'plane' && ss1.TYPE === ss2.TYPE && 
         ss1.coplanarUnsigned(ss2)) {
       return overlapsImpl(face1, face2) || overlapsImpl(face2, face1);        
     }
@@ -208,14 +209,19 @@ function findOverlappingFaces(shell1, shell2) {
 
   for (let face1 of shell1.faces) {
     for (let face2 of shell2.faces) {
+      if (DEBUG.FACE_MERGE) {
+        __DEBUG__.Clear();
+        __DEBUG__.AddFace(face1, 0x0000ff);
+        __DEBUG__.AddFace(face2);
+      }
       if (overlaps(face1, face2) ) {
         let group = overlapGroups.find(g => g[0].has(face1) || g[1].has(face2));
         if (!group) {
           group = [new Set(), new Set()];    
           overlapGroups.push(group);
         } 
-        group[0].push(face1);
-        group[2].push(face2);
+        group[0].add(face1);
+        group[1].add(face2);
       }
     }
   }
@@ -223,10 +229,10 @@ function findOverlappingFaces(shell1, shell2) {
 }
 
 
-function mergeOverlappingFaces(shell1, shell2) {
-  let groups = findOverlappingFaces(shell1.faces, shell2.faces);
+function mergeOverlappingFaces(shell1, shell2, opType) {
+  let groups = findOverlappingFaces(shell1, shell2);
   for (let group of groups) {
-    doMergeOverlappingFaces(group[0], group[1])
+    mergeFaces(Array.from(group[0]), Array.from(group[1]), opType)
   }
 }
 
@@ -236,7 +242,9 @@ function mergeFaces(faces1, faces2, opType) {
   function createForwardGraph(faces) {
     let graph = new Map();
     for (let face of faces) {
-      face.edges.forEach(e => graph.set(e.vertexA, e));
+      for (let e of face.edges) {
+        addToListInMap(graph, e.vertexA, e);   
+      }
     }
     return graph;
   }
@@ -244,7 +252,9 @@ function mergeFaces(faces1, faces2, opType) {
   function createBackwardGraph(faces) {
     let graph = new Map();
     for (let face of faces) {
-      face.edges.forEach(e => graph.set(e.vertexB, e));
+      for (let e of face.edges) {
+        addToListInMap(graph, e.vertexB, e);
+      }
     }      
     return graph;
   }
@@ -257,80 +267,119 @@ function mergeFaces(faces1, faces2, opType) {
   let valid = new Set();
   let invalid = new Set();
 
-  function invalidate(destFw, destBw, sourceFw, sourceBw) {
+  function invalidate(surface, destFw, destBw, sourceFw, sourceBw) {
 
     let destVertices = destFw.keys();
     
     for (let v of destVertices) {
-      let destEdgeOut = destFw.get(v);
-      let destEdgeIn = destBw.get(v);
+      let destEdgeOut = destFw.get(v)[0];
+      let destEdgeIn = destBw.get(v)[0];
       
       let tangentOut = destEdgeOut.tangent(v.point);
       let tangentIn = destEdgeIn.tangent(v.point);
 
-      let normal = dest.face.surface.normal(v.point);
+      if (DEBUG.FACE_MERGE) {
+        __DEBUG__.Clear();
+        __DEBUG__.AddHalfEdge(destEdgeOut, 0x00ff00);
+        __DEBUG__.AddHalfEdge(destEdgeIn, 0x00aa00);
+        __DEBUG__.AddNormal(v.point, tangentOut, 0xffffff);
+        __DEBUG__.AddNormal(v.point, tangentIn, 0xffffff);
+      }
+
+      let normal = surface.normal(v.point);
       
       let sourceEdges = sourceFw.get(v);
-      for (let sourceEdge of sourceEdges) {
-        
-        if (isSameEdge(sourceEdge, destEdgeOut)) {
-          // support coming soon;
-          throw new CadError('BOOLEAN_INVALID_RESULT', edgeCollisionError(sourceEdge, destEdgeOut));
-        } else if (isSameEdge(sourceEdge, destEdgeIn)) {
-          //annigilation here
-          throw new CadError('BOOLEAN_INVALID_RESULT', edgeCollisionError(sourceEdge, destEdgeOut));
-        } else {
-          let sourceTangent = sourceEdge.tangent(v.point);
-          
-          function insideOfVec(vec, test) {
-            return vec.cross(test).dot(normal) < 0;
+      if (sourceEdges) {
+        for (let sourceEdge of sourceEdges) {
+
+          if (DEBUG.FACE_MERGE) {
+            __DEBUG__.AddHalfEdge(sourceEdge);
           }
 
-          let insideOut = insideOfVec(tangentOut, sourceTangent);
-          let insideIn = insideOfVec(tangentIn, sourceTangent);
-          let inside = insideOut && insideIn;
-          if (opType === 'INTERSECT') {
-            valid.add(source);    
+          if (isSameEdge(sourceEdge, destEdgeOut)) {
+            // support coming soon;
+            throw new CadError('BOOLEAN_INVALID_RESULT', edgeCollisionError(sourceEdge, destEdgeOut));
+          } else if (isSameEdge(sourceEdge, destEdgeIn)) {
+            //annigilation here
+            throw new CadError('BOOLEAN_INVALID_RESULT', edgeCollisionError(sourceEdge, destEdgeOut));
           } else {
-            invalid.add(source);    
+            let sourceTangent = sourceEdge.tangent(v.point);
+            if (DEBUG.FACE_MERGE) {
+              __DEBUG__.AddNormal(v.point, sourceTangent, 0xffff00);
+            }
+
+            function insideOfVec(vec, test) {
+              return vec.cross(test).dot(normal) > 0;
+            }
+
+            let insideOut = insideOfVec(tangentOut, sourceTangent);
+            let insideIn = insideOfVec(tangentIn, sourceTangent);
+            let inside = insideOut && insideIn;
+            if (inside && opType === TYPE.INTERSECT) {
+              valid.add(sourceEdge);
+            } else if (!inside && opType === TYPE.INTERSECT) {
+              invalid.add(sourceEdge);
+            } else if (inside && opType === TYPE.UNION) {
+              invalid.add(sourceEdge);
+            } else if (!inside && opType === TYPE.UNION) {
+              valid.add(sourceEdge);
+            } else {
+              throw 'invariant';
+            }
           }
         }
       }
     }
 
   }
+  let destFace = faces1[0];
 
-  invalidate(fw1, bw1, fw2, bw2);
+  invalidate(destFace.surface, fw1, bw1, fw2, bw2);
 
-  let allFaces = [...faces1, ...faces2];
+  let allFaces = new Set([...faces1, ...faces2]);
   for (let face of allFaces) {
-    for (let loop of face.loop) {
+    for (let loop of face.loops) {
       loop.link();          
     }
   }
 
-  for (let edge of valid) {
-    edge = edge.next();
+  for (let edge of invalid) {
+    edge = edge.next;
     while (!valid.has(edge) && !invalid.has(edge)) {
-      valid.add(edge);          
+      invalid.add(edge);
+      edge = edge.next;
     }
   }
 
+  let resultEdges = [];
   for (let face of allFaces) {
-    face.outerLoop.halfEdges.clear();
+    for (let edge of face.edges) {
+      if (invalid.has(edge)) {
+        resultEdges.push(edge);
+        edge.loop = destFace.outerLoop; 
+      }
+    }
+  }
+  destFace.outerLoop.halfEdges = resultEdges;
+  
+  let allPoints = [];
+  for (let face of allFaces) {
+    if (destFace !== face) {
+      face.data[MY] = INVALID_FLAG;
+      face.outerLoop.halfEdges = [];
+    }
     face.innerLoops = [];
+    for (let e of face.edges) {
+      allPoints.push(e.vertexA.point);
+    }
   }    
-
-  for (let i = 1; i < allFaces.length; ++i) {
-    allFaces[i].data[MY].merged = true;
+  
+  let allFacesSet = new Set(allFaces);
+  for (let edge of resultEdges) {
+    EdgeSolveData.markTransferred(edge, allFacesSet);
   }
 
-  for (let edge of valid) {
-    EdgeSolveData.createIfEmpty(edge).
-  }
-
-  let destFace = faces1[0];
-  destFace.outerLoop = Array.from(valid);
+  destFace.surface = createBoundingNurbs(allPoints, destFace.surface.simpleSurface);
 }
 
 
@@ -444,7 +493,7 @@ function rayCastSolidImpl(ray, solid) {
     if (DEBUG.RAY_CAST) {
       __DEBUG__.AddFace(face, 0xffff00);
     }
-    let pip = face.data[MY].to2d().pip;
+    let pip = face.data[MY].env2D().pip;
     function isPointinsideFace(uv, pt) {
       let wpt = face.surface.createWorkingPoint(uv, pt); 
       let pipClass = pip(wpt);
@@ -645,6 +694,9 @@ export function loopsToFaces(originFace, loops, out) {
 
 function initSolveData(shell, facesData) {
   for (let face of shell.faces) {
+    if (face.data[MY] === INVALID_FLAG) {
+      continue;
+    }
     const solveData = new FaceSolveData(face);
     facesData.push(solveData);
     face.data[MY] = solveData;
@@ -781,6 +833,9 @@ function intersectFaces(shell1, shell2, operationType) {
   const invert = operationType === TYPE.UNION;
   for (let i = 0; i < shell1.faces.length; i++) {
     const face1 = shell1.faces[i];
+    if (face1.data[MY].merged) {
+      continue;
+    }
     if (DEBUG.FACE_FACE_INTERSECTION) {
       __DEBUG__.Clear();
       __DEBUG__.AddFace(face1, 0x00ff00);
@@ -788,6 +843,9 @@ function intersectFaces(shell1, shell2, operationType) {
     }
     for (let j = 0; j < shell2.faces.length; j++) {
       const face2 = shell2.faces[j];
+      if (face2.data[MY].merged) {
+        continue;
+      }
       if (DEBUG.FACE_FACE_INTERSECTION) {
         __DEBUG__.Clear();
         __DEBUG__.AddFace(face1, 0x00ff00);
@@ -803,6 +861,8 @@ function intersectFaces(shell1, shell2, operationType) {
         if (DEBUG.FACE_FACE_INTERSECTION) {
           __DEBUG__.AddCurve(curve);
         }
+        __DEBUG__.AddCurve(curve);
+        
         curve = fixCurveDirection(curve, face1.surface, face2.surface, operationType);
         const nodes = [];
         collectNodesOfIntersectionOfFace(curve, face1, nodes);
@@ -812,6 +872,10 @@ function intersectFaces(shell1, shell2, operationType) {
         split(nodes, curve, newEdges);
 
         newEdges.forEach(e => {
+          if (edgeIsTransferred(e, face1, face2) || edgeIsTransferred(e, face2, face1)) {
+            console.log('transferred curved detected');
+            return;
+          }
           newEdgeDirectionValidityTest(e, curve);
           addNewEdge(face1, e.halfEdge1);
           addNewEdge(face2, e.halfEdge2);
@@ -819,6 +883,17 @@ function intersectFaces(shell1, shell2, operationType) {
       }
     }
   }
+}
+
+function edgeIsTransferred(testedEdge, testedEdgesFace, onFace) {
+  for (let edge of testedEdgesFace.edges) {
+    let transferredFaces = EdgeSolveData.getTransferredFaces(edge);
+    if (transferredFaces && transferredFaces.has(onFace)) {
+      let pt = edge.curve.middlePoint();
+      return edgesHaveSameEnds(testedEdge, edge) && testedEdge.curve.passesThrough(pt);
+    }
+  }
+   return false;
 }
 
 function addNewEdge(face, halfEdge) {
@@ -1002,13 +1077,21 @@ EdgeSolveData.transfer = function(from, to) {
   to.data[MY] = from.data[MY];
 };
 
-EdgeSolveData.markTranfered(edge, faces) = function() {
+EdgeSolveData.markTransferred = function(edge, faces) {
   let data = EdgeSolveData.createIfEmpty(edge);
-  if (!data.transferedSurfaces) {
-    data.transferedSurfaces = new Set();
+  if (!data.transferredFaces) {
+    data.transferredFaces = new Set();
   }
-  faces.forEach(f => data.transferedSurfaces.add(f));
-}
+  faces.forEach(f => data.transferredFaces.add(f));
+};
+
+EdgeSolveData.getTransferredFaces = function(edge) {
+  let data = EdgeSolveData.get(edge);
+  if (data) {
+    return data.transferredFaces;
+  }
+  return undefined;
+};
 
 function isNew(edge) {
   return EdgeSolveData.get(edge).newEdgeFlag === true
@@ -1087,24 +1170,10 @@ class FaceSolveData {
   constructor(face) {
     this.face = face;
     this.loopOfNew = new Loop(face);
-    this.merged = false;
     face.innerLoops.push(this.loopOfNew);
     this.vertexToEdge = new Map();
     this.graphEdges = [];
     this.errors = [];
-  }
-
-
-  to2d() {
-    if (this._2d === undefined) {
-      let workingPolygon = face.createWorkingPolygon();
-      let [inner, ...outers] = workingPolygon;
-      this._2d = {
-        pip: PIP(inner, outers),
-        workingPolygon
-      }
-    }
-    return this._2d;
   }
 
   initGraph() {
@@ -1184,6 +1253,14 @@ function removeFromListInMap(map, key, value) {
   }
 }
 
+function edgesHaveSameEnds(e1, e2) {
+  let a1 = e1.vertexA;
+  let b1 = e1.vertexB;
+  let a2 = e2.vertexA;
+  let b2 = e2.vertexB;
+  return (a1 === a2 && b1 === b2) || (a1 === b2 && b1 === a2) 
+}
+
 function isSameEdge(e1, e2) {
   let tess = e1.tessellate();
   for (let pt1 of tess) {
@@ -1213,6 +1290,15 @@ function checkFaceDataForError(facesData) {
   }
 }
 
+function addToListInMap(map, key, value) {
+  let list = map.get(key);
+  if (!list) {
+    list = [];
+    map.set(key, list);
+  }
+  list.push(value);
+}
+
 function $DEBUG_OPERANDS(shell1, shell2) {
   if (DEBUG.OPERANDS_MODE) {
     __DEBUG__.HideSolids();
@@ -1229,4 +1315,5 @@ function assert(name, cond) {
   }
 }
 
+const INVALID_FLAG = 'INVALID_FLAG'; 
 const MY = '__BOOLEAN_ALGORITHM_DATA__'; 

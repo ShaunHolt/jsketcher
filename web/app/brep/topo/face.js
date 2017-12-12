@@ -1,5 +1,6 @@
 import {TopoObject} from './topo-object'
 import {Loop} from './loop'
+import PIP from '../../3d/tess/pip';
 
 export class Face extends TopoObject {
 
@@ -19,6 +20,18 @@ export class Face extends TopoObject {
 
   createWorkingPolygon() {
     return [this.outerLoop, ...this.innerLoops].map(loop => loop.tess().map(pt => this.surface.workingPoint(pt)));
+  }
+
+  env2D() {
+    if (this.__2d === undefined) {
+      let workingPolygon = this.createWorkingPolygon();
+      let [inner, ...outers] = workingPolygon;
+      this.__2d = {
+        pip: PIP(inner, outers),
+        workingPolygon
+      }
+    }
+    return this.__2d;
   }
 }
 
