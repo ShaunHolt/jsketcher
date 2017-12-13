@@ -98,7 +98,7 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
   checkFaceDataForError(facesData);
   
   for (let faceData of facesData) {
-    faceData.detectedLoops = detectLoops(faceData.face);
+    faceData.detectedLoops = detectLoops(faceData.face.surface, faceData);
   }
   
   let detectedLoops = new Set();
@@ -134,18 +134,17 @@ export function BooleanAlgorithm( shell1, shell2, type ) {
   return result;
 }
 
-function detectLoops(face) {
-  const faceData = face.data[MY];
+function detectLoops(surface, graph) {
   if (DEBUG.LOOP_DETECTION) {
     __DEBUG__.Clear();
-    __DEBUG__.AddFace(face, 0x00ff00);
+    graph.graphEdges.forEach(de => __DEBUG__.AddHalfEdge(de, 0x00ff00));
     DEBUG.NOOP();
   }
 
   const loops = [];
   const seen = new Set();
   while (true) {
-    let edge = faceData.graphEdges.pop();
+    let edge = graph.graphEdges.pop();
     if (!edge) {
       break;
     }
@@ -167,7 +166,7 @@ function detectLoops(face) {
         break;
       }
       
-      let candidates = faceData.vertexToEdge.get(edge.vertexB);
+      let candidates = graph.vertexToEdge.get(edge.vertexB);
       if (!candidates) {
         break;
       }
@@ -343,6 +342,10 @@ function mergeFaces(faces1, faces2, opType) {
     }
   }
 
+  for (let edge of valid) {
+    EdgeSolveData.markNew(edge);
+  }
+
   for (let edge of invalid) {
     edge = edge.next;
     while (!valid.has(edge) && !invalid.has(edge)) {
@@ -351,23 +354,21 @@ function mergeFaces(faces1, faces2, opType) {
     }
   }
 
-  let resultEdges = [];
+  let graph = new EdgeGraph();
   for (let face of allFaces) {
     for (let edge of face.edges) {
-      if (invalid.has(edge)) {
-        resultEdges.push(edge);
-        edge.loop = destFace.outerLoop; 
+      if (!invalid.has(edge)) {
+        graph.push(edge);
       }
     }
   }
-  destFace.outerLoop.halfEdges = resultEdges;
   
   let allPoints = [];
   for (let face of allFaces) {
     if (destFace !== face) {
       face.data[MY] = INVALID_FLAG;
-      face.outerLoop.halfEdges = [];
     }
+    face.outerLoop.halfEdges = [];
     face.innerLoops = [];
     for (let e of face.edges) {
       allPoints.push(e.vertexA.point);
@@ -376,10 +377,13 @@ function mergeFaces(faces1, faces2, opType) {
   
   let allFacesSet = new Set(allFaces);
   for (let edge of resultEdges) {
+    //TODO: might be unnecessary
     EdgeSolveData.markTransferred(edge, allFacesSet);
   }
 
   destFace.surface = createBoundingNurbs(allPoints, destFace.surface.simpleSurface);
+
+  destFace.innerLoops = detectLoops(destFace.surface, graph);
 }
 
 
@@ -900,7 +904,7 @@ function addNewEdge(face, halfEdge) {
   const data = face.data[MY];
   data.loopOfNew.halfEdges.push(halfEdge);
   halfEdge.loop = data.loopOfNew;
-  EdgeSolveData.createIfEmpty(halfEdge).newEdgeFlag = true;
+  EdgeSolveData.markNew(halfEdge);
   return true;
 }
 
@@ -949,31 +953,58 @@ function collectNodesOfIntersectionOfFace(curve, face, nodes) {
   }
 }
 
+function nodeByVertex(nodes, vertex, u, curve) {
+  let node = nodes.find(n => n.vertex === vertex);
+  if (!node) {
+    if (u === undefined) {
+      u = cirve.param(vertex.point);
+    }
+    node = new Node(vertex, u);
+    nodes.push(node);
+  }
+  return node;
+}
+
 function collectNodesOfIntersection(curve, loop, nodes) {
+  let shellIndex = ?;
+  for (let [v, a, b] of loop.encloses) {
+    if (curve.passesThrough(v.point)) {
+      let node = nodeByVertex(node, v, undefined, curve);
+      if (curveAndEdgeCoincident(b, curve)) {
+        node.out[shellIndex] = true;
+      } else {
+        if (isInsideEnclose(curve.tangent(v.point), v, a, b)) {
+          node.in[shellIndex] = true;
+        } else {
+          node.out[shellIndex] = true;
+        }
+      }
+    }
+  }    
   for (let edge of loop.halfEdges) {
     intersectCurveWithEdge(curve, edge, nodes);
   }
 }
 
-function intersectCurveWithEdge(curve, edge, result) {
+function intersectCurveWithEdge(curve, edge, nodes) {
   // __DEBUG__.AddCurve(curve, 0xffffff);
   // __DEBUG__.AddHalfEdge(edge, 0xff00ff);
-  const points = edge.edge.curve.intersectCurve(curve, TOLERANCE);
+  const points = edge.edge.curve.intersectCurve(curve);
   for (let point of points) {
     const {u0, u1} = point;
 
     let vertex;
-    if (ueq(u0, 0)) {
-      vertex = edge.edge.halfEdge1.vertexA;
-    } else if (ueq(u0, 1)) {
-      vertex = edge.edge.halfEdge1.vertexB;
-    } else {
-      vertex = vertexFactory.create(point.p0);
+    if (!ueq(u0, 0) && !ueq(u0, 1)) {
+      vertex = vertexFactory.create(point.p0, (vertex) => {throw new CadError('BOOLEAN_INVALID_RESULT', {vertex})});
+      let node = nodeByVertex(nodes, vertex, u1)
+      if (isInsideEdge(curve.tangent(v.point), edge)) {
+        node.in[shellIndex] = true;
+      } else {
+        node.out[shellIndex] = true;
+      }
     }
 
     // __DEBUG__.AddVertex(vertex);
-
-    result.push(new Node(vertex, edge, curve, u1));
   }
 }
 
@@ -1085,6 +1116,10 @@ EdgeSolveData.markTransferred = function(edge, faces) {
   faces.forEach(f => data.transferredFaces.add(f));
 };
 
+EdgeSolveData.markNew = function(halfEdge) {
+  EdgeSolveData.createIfEmpty(halfEdge).newEdgeFlag = true;
+};
+
 EdgeSolveData.getTransferredFaces = function(edge) {
   let data = EdgeSolveData.get(edge);
   if (data) {
@@ -1109,13 +1144,11 @@ function isNewNM(edge) {
   return isNew(edge); 
 }
 
-function Node(vertex, edge, curve, u) {
-  this.vertex = vertex;
-  this.edge = edge;
-  this.curve = curve;
+function Node(vertex, u) {
   this.u = u;
-  this.normal = isNew(edge) ? 0 : nodeNormal(vertex.point, edge, curve);
-  //__DEBUG__.AddPoint(this.point);
+  this.vertex = vertex;
+  this.in = [];
+  this.out = [];
 }
 
 
@@ -1147,13 +1180,13 @@ class VertexFactory {
     return null;
   }
 
-  create(point) {
-
+  create(point, onExist) {
     let vertex = this.find(point);
     if (vertex === null) {
       vertex = new Vertex(point);
       this.vertices.push(vertex);
-      console.log("DUPLICATE DETECTED: " + vertex);
+    } else if (onExist !== undefined) {
+      onExist(vertex);
     }
     return vertex;
   }
@@ -1165,14 +1198,24 @@ class SolveData {
   }
 }
 
+class EdgeGraph {
+  constructor() {
+    this.vertexToEdge = new Map();
+    this.graphEdges = [];
+  }
+ 
+  add(he) {
+    addToListInMap(this.vertexToEdge, he.vertexA, he);
+    this.graphEdges.push(he);
+  }
+}
 
-class FaceSolveData {
+class FaceSolveData extends EdgeGraph {
   constructor(face) {
+    super();
     this.face = face;
     this.loopOfNew = new Loop(face);
     face.innerLoops.push(this.loopOfNew);
-    this.vertexToEdge = new Map();
-    this.graphEdges = [];
     this.errors = [];
   }
 
@@ -1265,6 +1308,19 @@ function isSameEdge(e1, e2) {
   let tess = e1.tessellate();
   for (let pt1 of tess) {
     let pt2 = e2.edge.curve.point(e2.edge.curve.param(pt1));
+    if (!veq(pt1, pt2)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function curveAndEdgeCoincident(curve, edge) {
+  let tess = edge.tessellate();
+  //Do reverese to optimaze a bit because the first point is usually checked
+  for (let i = tess.length - 1; i >= 0; i--) {
+    let pt1 = tess[i];
+    let pt2 = curve.point(e2.edge.curve.param(pt1));
     if (!veq(pt1, pt2)) {
       return false;
     }
