@@ -332,23 +332,26 @@ function mergeFaces(faces1, faces2, opType) {
     }
   }
   
-  let allPoints = [];
   for (let face of allFaces) {
     if (destFace !== face) {
       face.data[MY] = INVALID_FLAG;
     }
     face.outerLoop.halfEdges = [];
     face.innerLoops = [];
-    for (let e of face.edges) {
-      allPoints.push(e.vertexA.point);
-    }
   }    
 
-  destFace.surface = createBoundingNurbs(allPoints, destFace.surface.simpleSurface);
   destFace.innerLoops = detectLoops(destFace.surface, graph);
+  let allPoints = [];
   for (let edge of destFace.edges) {
     discardedEdges.delete(edge);
+    allPoints.push(edge.vertexA.point);
   }
+  if (allPoints.length === null) {
+    destFace.data[MY] = INVALID_FLAG;
+    return;
+  }
+  destFace.surface = createBoundingNurbs(allPoints, destFace.surface.simpleSurface);
+  
   for (let loop of destFace.loops) {
     loop.face = destFace;
   }
@@ -776,7 +779,6 @@ function intersectFaces(shell1, shell2, operationType) {
         if (DEBUG.FACE_FACE_INTERSECTION) {
           __DEBUG__.AddCurve(curve);
         }
-        __DEBUG__.AddCurve(curve);
         
         curve = fixCurveDirection(curve, face1.surface, face2.surface, operationType);
         const nodes = [];
@@ -898,7 +900,7 @@ function split(nodes, curve, result) {
       hadLeft = true;
     }
     
-    if (wasInside && !hadLeft) {
+    if (wasInside && hadLeft) {
       let edgeCurve = curve;
       if (!ueq(inNode.u, 0)) {
         [,edgeCurve] = edgeCurve.split(inNode.vertex.point);
@@ -1004,18 +1006,6 @@ EdgeSolveData.transfer = function(from, to) {
 
 EdgeSolveData.markNew = function(halfEdge) {
   EdgeSolveData.createIfEmpty(halfEdge).newEdgeFlag = true;
-};
-
-EdgeSolveData.markToSplit = function(halfEdge, splitInfo) {
-  let edge = halfEdge.edge;
-  let data = edge.data[MY];
-  if (data === undefined) {
-    data = {
-      splitInfo: []
-    };
-    edge.data[MY] = data
-  }
-  data.splitInfo.push(splitInfo);
 };
 
 function isNew(edge) {
