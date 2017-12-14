@@ -98,7 +98,7 @@ export class NurbsCurveImpl { //TODO: rename to NurbsCurve implements Parametric
 
   split(u) {
     let split = verb.eval.Divide.curveSplit(this.data, u);
-    split.forEach(n => ext.CurveParametrization(n));
+    split.forEach(n => ext.normalizeCurveParametrization(n));
     return split.map(c => new NurbsCurveImpl(newVerbCurve(c)));
   }
 }
