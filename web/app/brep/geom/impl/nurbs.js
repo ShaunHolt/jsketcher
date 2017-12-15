@@ -4,7 +4,7 @@ import {Point} from '../point'
 import {Surface} from "../surface";
 import Vector from "../../../math/vector";
 import * as ext from "./nurbs-ext";
-import {EPSILON, eqEps, eqSqTol, TOLERANCE, TOLERANCE_SQ, ueq, veq, veq3} from "../tolerance";
+import {EPSILON, eqEps, eqSqTol, TOLERANCE, TOLERANCE_SQ, ueq, veq, veq3, veqNeg} from "../tolerance";
 import curveIntersect from "./curve/curves-isec";
 import curveTess from "./curve/curve-tess";
 import {areEqual} from "../../../math/math";
@@ -233,8 +233,9 @@ export class NurbsCurve { //TODO: rename to BrepCurve
       i.p1 = pt(i.p1);
     });
     isecs = isecs.filter(({u0, u1}) => {
-      let collinearFactor = Math.abs(this.tangentAtParam(u0).dot(other.tangentAtParam(u1)));
-      return !math.areEqual(collinearFactor, 1);
+      let t0 = this.tangentAtParam(u0);
+      let t1 = other.tangentAtParam(u1);
+      return !veq(t0, t1) && !veqNeg(t0, t1);
     });
     return isecs;
   }
@@ -268,7 +269,8 @@ function degree1OptTessellator(curve, min, max, tessTol, scale) {
 }
 
 NurbsCurve.createLinearNurbs = function(a, b) {
-  return new NurbsCurve(new NurbsCurveImpl(new verb.geom.Line(a.data(), b.data())));
+  let line = verb.geom.NurbsCurve.byKnotsControlPointsWeights( 1, [0,0,1,1], [a.data(), b.data()]);
+  return new NurbsCurve(new NurbsCurveImpl(line));
 };
 
 export class NurbsSurface extends Surface {
