@@ -88,6 +88,7 @@ export function BooleanAlgorithm( shellA, shellB, type ) {
 
   intersectEdges(shellA, shellB);
   mergeOverlappingFaces(shellA, shellB, type);
+  transferOverlappingEdges(shellA, shellB);
   
   initSolveData(shellA, facesData);
   initSolveData(shellB, facesData);
@@ -109,8 +110,12 @@ export function BooleanAlgorithm( shellA, shellB, type ) {
       detectedLoops.add(loop);
     }
   }
-
-  // let invalidLoops = invalidateLoops(detectedLoops);
+  
+  let [invalidLoops, invalidEdges] = invalidateLoops(detectedLoops);
+  
+  if (invalidEdges.size !== 0) {
+    throw new CadError('BOOLEAN_INVALID_RESULT', {code: 'MALFORMED_EDGES', payload: Array.from(invalidEdges)});
+  }
   
   let faces = [];
   
@@ -616,49 +621,20 @@ function traverseFaces(face, validFaces, callback) {
   }
 }
 
-function invalidateLoops(newLoops) {
+function invalidateLoops(resultLoops) {
   // __DEBUG__.Clear();
-  const invalid = new Set();
-  for (let loop of newLoops) {
+  const invalidLoops = new Set();
+  const invalidEdges = new Set();
+  for (let loop of resultLoops) {
     // __DEBUG__.AddLoop(loop);
     for (let e of loop.halfEdges) {
-      if (e.manifold !== null) {
-        let manifold = [e,  ...e.manifold];
-        manifold.filter(me => newLoops.has(me.twin().loop));
-        if (manifold.length === 0) {
-          invalid.add(loop);
-        } else {
-          let [me, ...rest] = manifold;
-          e.edge = me.edge;
-          e.manifold = rest.length === 0 ? null : rest;
-        }
-      } else {
-        if (!newLoops.has(e.twin().loop)) {
-          invalid.add(loop);
-          break;
-        }
+      if (!resultLoops.has(e.twin().loop)) {
+        invalidLoops.add(loop);
+        invalidEdges.add(e);
       }
     }
   }
-  
-  // const seen = new Set();
-  //
-  // const stack = Array.from(invalid);
-  //
-  // while (stack.length !== 0) {
-  //   let loop = stack.pop();
-  //   if (!seen.has(loop)) continue;
-  //   seen.add(loop);
-  //    
-  //   for (let he of loop.halfEdges) {
-  //     let twins = he.twins();
-  //     for (let twin of twins) {
-  //       invalid.add(twin.loop);
-  //       stack.push(twin.loop); 
-  //     }        
-  //   }
-  // }
-  return invalid;  
+  return [invalidLoops, invalidEdges];  
 }
 
 export function loopsToFaces(originFace, loops, out) {
@@ -734,29 +710,13 @@ function intersectEdges(shell1, shell2) {
       let points = e1.curve.intersectCurve(e2.curve, TOLERANCE);
       if (points.length !== 0) {
         const vertexHolder = [];
-        addIsesc(e1, points.map(p => ({u: p.u0, vertexHolder})));
-        addIsesc(e2, points.map(p => ({u: p.u1, vertexHolder})));
+        addIsesc(e1, points.map( ({u0: u, p0: p}) => ({u, p, vertexHolder})  ));
+        addIsesc(e2, points.map( ({u1: u, p1: p}) => ({u, p, vertexHolder})  ));
       }
     }
   }
   for (let [e, points] of isecs) {
     points.sort((p1, p2) => p1.u - p2.u);
-    let first = points[0];
-    let last = points[points.length - 1];
-    if (ueq(first.u, 0)) {
-      // if (!first.vertexHolder[0]) {
-      //   first.vertexHolder[0] = e.halfEdge1.vertexA;
-      // }
-      first.skip = true;
-    }
-    if (ueq(last.u, 1)) {
-      // if (!last.vertexHolder[0]) {
-      //   last.vertexHolder[0] = e.halfEdge1.vertexB;
-      // }
-      last.skip = true;
-    }
-  }
-  for (let [e, points] of isecs) {
     for (let {u, vertexHolder} of points ) {
       if (!vertexHolder[0]) {
         vertexHolder[0] = vertexFactory.create(e.curve.point(u));
@@ -764,11 +724,8 @@ function intersectEdges(shell1, shell2) {
     }
   }
   for (let [e, points] of isecs) {
-    for (let {u, vertexHolder, skip} of points ) {
-      if (skip === true) {
-        continue;
-      }
-      let split = splitEdgeByVertex(e, vertexFactory.create(e.curve.point(u)));
+    for (let {vertexHolder} of points ) {
+      let split = splitEdgeByVertex(e, vertexHolder[0]);
       if (split !== null) {
         e = split[1];
       }
@@ -844,6 +801,40 @@ function intersectFaces(shellA, shellB, operationType) {
           addNewEdge(faceB, e.halfEdge2);
         });
       }
+      transferEdges(faceA, faceB, operationType);
+      transferEdges(faceB, faceA, operationType);
+    }
+  }
+}
+
+function chooseValidEdge(edge, face, operationType) {
+
+  let pt = edge.middlePoint();
+  let normal = edge.tangent(pt);
+  let a = normal.cross(edge.loop.face.surface.normal(pt));
+  let b = normal.cross(edge.twin().loop.face.surface.normal(pt));
+  let testee = normal.cross(face.surface.normal(pt));
+  if (isInsideEnclose(normal, testee, a, b, false)) {
+    
+  }
+
+}
+
+function transferEdges(faceSource, faceDest, operationType) {
+  for (let loop of faceSource.loops) {
+    if (loop === faceSource.data[MY].loopOfNew) {
+      continue;
+    }
+    for (let edge of loop.halfEdges) {
+      if (edgeCollinearToFace(edge, faceDest)) {
+        
+        if (chooseValidEdge(edge, faceDest, operationType)) {
+          
+        }
+        
+        let mid = edge.middlePoint();
+        
+      }
     }
   }
 }
@@ -878,17 +869,28 @@ function collectNodesOfIntersectionOfFace(curve, face, nodes, operand) {
 }
 
 function collectNodesOfIntersection(curve, loop, nodes, operand) {
+  __DEBUG__.AddCurve(curve, 0xffffff);
+  let skippedEnclosures = new Set();
+  
+  for (let edge of loop.halfEdges) {
+    if (curveAndEdgeCoincident(curve, edge)) {
+      let sameDir = edge.tangentAtStart().dot(curve.tangentAtPoint(edge.vertexA.point)) > 0;
+      let vertex = sameDir ? edge.vertexA : edge.vertexB;
+      skippedEnclosures.add(vertex);
+      let node = nodeByVertex(nodes, vertex, undefined, curve);
+      node.leaves[operand] = true;
+    }
+  }
   for (let [a, b, v] of loop.encloses) {
+    if (skippedEnclosures.has(v)) {
+      continue;
+    }
     if (curve.passesThrough(v.point)) {
       let node = nodeByVertex(nodes, v, undefined, curve);
-      if (curveAndEdgeCoincident(curve, b)) {
-        node.leaves[operand] = true;
+      if (isCurveEntersEnclose(curve, a, b)) {
+        node.enters[operand] = true;
       } else {
-        if (isCurveEntersEnclose(curve, a, b)) {
-          node.enters[operand] = true;
-        } else {
-          node.leaves[operand] = true;
-        }
+        node.leaves[operand] = true;
       }
     }
   }    
@@ -905,7 +907,8 @@ function intersectCurveWithEdge(curve, edge, nodes, operand) {
     const {u0, u1} = point;
     let vertex = vertexFactory.create(point.p0, () => null);
     if (vertex === null) {
-      //vertex already exists, means we hit an end of edge and this case is handled by enclosure analysis
+      // vertex already exists, means either we hit an end of edge and this case is handled by enclosure analysis
+      // 
       continue;
     }
       
@@ -1285,7 +1288,7 @@ function curveAndEdgeCoincident(curve, edge) {
 
 function edgeCollisionError(e1, e2) {
   return {
-    e1, e2, code: 'EDGE_COLLISION'
+    code: 'EDGE_COLLISION', payload: {e1, e2}
   }
 }
 
