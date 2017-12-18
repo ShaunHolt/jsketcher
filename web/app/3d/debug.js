@@ -8,7 +8,7 @@ import * as ui from '../ui/ui';
 
 import React from 'react';
 import ReactDOM from 'react-dom';
-import BrepDebugger from './../brep/debug/brep-debugger';
+import BrepDebugger from './../brep/debug/debugger/brepDebugger';
 
 export const DEBUG = true;
 
