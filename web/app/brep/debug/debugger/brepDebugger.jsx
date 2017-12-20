@@ -50,6 +50,28 @@ export default class BrepDebugger extends React.PureComponent {
               </div>
             </div>
           </Section>
+
+          <Section name='edge intersections' accent>
+            edge intersections...
+          </Section>
+          <Section name='face merge' accent>
+            face merge...
+          </Section>
+
+          <Section name='face intersections' accent>
+            face intersections...
+          </Section>
+          <Section name='loops detection' accent>
+            loops detection...
+          </Section>
+          <Section name='loops validation' accent>
+            loops validation...
+          </Section>
+          <Section name='loops filter' accent>
+            loops filter...
+          </Section>
+          
+
         </Section>)}
       </div> 
     </div>;
