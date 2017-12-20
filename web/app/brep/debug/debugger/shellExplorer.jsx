@@ -53,7 +53,7 @@ function loopGeomProvider(loop) {
 }
 
 function edgeGeomProvider(edge) {
-  // return GeomProvider(edge.refId, () => );
+  return GeomProvider(edge.refId, () => );
 }
 
 
