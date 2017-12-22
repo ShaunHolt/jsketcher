@@ -25,7 +25,7 @@ export default class BrepDebugger extends React.PureComponent {
 
       <div className='section boolean-sessions'>
       {booleanSessions.map(session => 
-        <Section name={`boolean session ${session.id} - ${session.type}`} closable accent captionStyles={['centered']}>
+        <Section key={session.id} name={`boolean session ${session.id} - ${session.type}`} closable accent captionStyles={['centered']}>
           <div className='section'>
 
             <Section name='input operands' accent>
