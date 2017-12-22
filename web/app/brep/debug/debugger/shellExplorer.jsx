@@ -1,7 +1,9 @@
 import React from 'react';
 import Section from "./section";
 import {
-  ActiveLabel, Controls, getEdgeViewObjects, getFaceViewObjects, getLoopViewObjects, getVertexViewObjects, mapIterable,
+  ActiveLabel, Controls, getEdgesViewObjects, getEdgeViewObjects, getFaceViewObjects, getLoopsViewObjects,
+  getLoopViewObjects,
+  getVertexViewObjects, mapIterable,
   TAB
 } from "./utils";
 
@@ -19,32 +21,37 @@ export default class ShellExplorer extends React.PureComponent {
 }
 
 export function FaceExplorer({face, group3d, customName, category}) {
-  if (!category) throw 'no category';
+  return <LoopsExplorer loops={face.loops} {...{group3d, category}} name={getName('face', customName, face)} />
+}
+
+export function LoopsExplorer({loops, group3d, name, category}) {
   let ctrlProps = {
-    viewObjectsProvider: getFaceViewObjects, topoObj: face, group3d, category
+    viewObjectsProvider: getLoopsViewObjects, topoObj: loops, group3d, category
   };
   let controls = <Controls {...ctrlProps} />;
-  let name = <ActiveLabel {...ctrlProps}>{getName('face', customName, face)}</ActiveLabel>
-  return <Section name={name} tabs={TAB} closable defaultClosed={true} controls={controls}>
-    {mapIterable(face.loops, loop => <LoopExplorer key={loop.refId} {...{loop, group3d, category}} />)}    
+  let nameComp = <ActiveLabel {...ctrlProps}>{name}</ActiveLabel>;
+  return <Section name={nameComp} tabs={TAB} closable defaultClosed={true} controls={controls}>
+    {mapIterable(loops, loop => <LoopExplorer key={loop.refId} {...{loop, group3d, category}} />)}
   </Section>
 }
 
 export function LoopExplorer({loop, group3d, customName, category}) {
-  if (!category) throw 'no category';
+  return <EdgesExplorer edges={loop.halfEdges} {...{group3d, category}} name={getName('loop', customName, loop)} />
+}
+
+export function EdgesExplorer({edges, group3d, name, category}) {
   let ctrlProps = {
-    viewObjectsProvider: getLoopViewObjects, topoObj: loop, group3d, category
+    viewObjectsProvider: getEdgesViewObjects, topoObj: edges, group3d, category
   };
   let controls = <Controls {...ctrlProps} />;
-  let name = <ActiveLabel {...ctrlProps}>{getName('loop', customName, loop)}</ActiveLabel>;
-  
-  return <Section name={name} tabs={TAB} closable defaultClosed={true} controls={controls}>
-    {mapIterable(loop.halfEdges, edge => <EdgesExplorer key={edge.refId} {...{edge, group3d, category}}/>)}    
+  let nameCtrl = <ActiveLabel {...ctrlProps}>{name}</ActiveLabel>;
+
+  return <Section name={nameCtrl} tabs={TAB} closable defaultClosed={true} controls={controls}>
+    {mapIterable(edges, edge => <EdgeExplorer key={edge.refId} {...{edge, group3d, category}}/>)}
   </Section>
 }
 
-export function EdgesExplorer({edge, group3d, customName, category}) {
-  if (!category) throw 'no category';
+export function EdgeExplorer({edge, group3d, customName, category}) {
   let ctrlProps = {
     viewObjectsProvider: getEdgeViewObjects, topoObj: edge, group3d, category
   };
@@ -56,7 +63,7 @@ export function EdgesExplorer({edge, group3d, customName, category}) {
     {twin && [
       twin.loop && [<LoopExplorer loop={twin.loop} customName='t-loop' {...{group3d, category}} />,
       twin.loop.face &&<FaceExplorer face={twin.loop.face} customName='t-face' {...{group3d, category}} />],
-      <EdgesExplorer edge={twin} customName='twin' {...{group3d, category}} />
+      <EdgeExplorer edge={twin} customName='twin' {...{group3d, category}} />
     ]}
     <VertexExplorer vertex={edge.vertexA} customName='vertex A' {...{group3d, category}} />
     <VertexExplorer vertex={edge.vertexB} customName='vertex B' {...{group3d, category}} />
@@ -65,7 +72,6 @@ export function EdgesExplorer({edge, group3d, customName, category}) {
 }
 
 export function VertexExplorer({vertex, group3d, customName, category}) {
-  if (!category) throw 'no category';
   let ctrlProps = {
     viewObjectsProvider: getVertexViewObjects, topoObj: vertex, group3d, category
   };

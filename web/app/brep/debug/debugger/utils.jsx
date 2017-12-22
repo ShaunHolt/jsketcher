@@ -1,13 +1,22 @@
 import React from 'react';
-import {BLUE, cycleColor, GREEN, SALMON, WHITE} from "./colors";
-import {distanceAB3, distanceSquaredAB3} from "../../../math/math";
+import {BLUE, cycleColor, DETECTED_EDGE, DISCARDED_EDGE, GREEN, SALMON, WHITE} from "./colors";
+import {distanceAB3} from "../../../math/math";
+import BREP_DEBUG from '../brep-debug';
 
 export function getFaceViewObjects(group3d, category, out, face) {
-  forEach(face.loops, getLoopViewObjects.bind(null, group3d, category, out));
+  return getLoopsViewObjects(group3d, category, out, face.loops);
+}
+
+export function getLoopsViewObjects(group3d, category, out, loops) {
+  forEach(loops, getLoopViewObjects.bind(null, group3d, category, out));
 }
 
 export function getLoopViewObjects(group3d, category, out, loop) {
-  forEach(loop.halfEdges, getEdgeViewObjects.bind(null, group3d, category, out));
+  return getEdgesViewObjects(group3d, category, out, loop.halfEdges);
+}
+
+export function getEdgesViewObjects(group3d, category, out, edges) {
+  forEach(edges, getEdgeViewObjects.bind(null, group3d, category, out));
 }
 
 export const getEdgeViewObjects = findOrCreate.bind(null, (edge, color) => {
@@ -72,27 +81,38 @@ export function findOrCreate(creator, group3d, category, out, topoObj) {
   let id = category + '/' + topoObj.refId;
   let obj = group3d.children.find(obj => obj.__tcad_debug_refId === id);
   if (!obj) {
-    obj = creator(topoObj, getInitColor(category, topoObj.constructor.name));
+    obj = creator(topoObj, getInitColor(category, topoObj.constructor.name, topoObj));
     group3d.add(obj);
     obj.__tcad_debug_refId = id;
+    obj.__tcad_debug_topoObj = topoObj;
     obj.visible = false;
   }
   out.push(obj);
 }
 
 export function setViewObjectsColor(objectsProvider, group3d, category, topoObj, colorGetter) {
-  let objs = [];
-  objectsProvider(group3d, category, objs, topoObj);
-  objs.forEach(o => o.__tcad_debug_materials.forEach(m => m.color.setHex(colorGetter(o))));
-  __DEBUG__.render();
+  fetchViewObjects(objectsProvider, group3d, category, topoObj)
+    .forEach(o => o.__tcad_debug_materials.forEach(m => m.color.setHex(colorGetter(o))));
 }
 
-export function getInitColor(category, objectType) {
+export function fetchViewObjects(objectsProvider, group3d, category, topoObj) {
+  let objs = [];
+  objectsProvider(group3d, category, objs, topoObj);
+  return objs;
+}
+
+
+export function getInitColor(category, objectType, obj) {
   switch (objectType) {
     case 'HalfEdge': 
       switch (category) {
         case 'face_intersection_operandA': return GREEN;
         case 'face_intersection_operandB': return BLUE;
+        case 'loop-detection': {
+          if (obj) {
+            return BREP_DEBUG.booleanDetectedLoopEdges.has(obj) ? DETECTED_EDGE : DISCARDED_EDGE;
+          }
+        }
         default: return SALMON;
       }
     case 'Vertex':
@@ -151,11 +171,21 @@ export function ActiveLabel({viewObjectsProvider, group3d, category, topoObj, ch
   function onMouseEnter() {
     applyToAll(o => {
       o.__tcad_debug_last_visible = o.visible;
+      o.__tcad_debug_materials.forEach(m => {
+        m.opacity = 0.7;
+        m.transparent = true;
+      });
       o.visible = true;
     })
   }
   function onMouseLeave() {
-    applyToAll(o => o.visible = o.__tcad_debug_last_visible);
+    applyToAll(o => {
+      o.visible = o.__tcad_debug_last_visible;
+      o.__tcad_debug_materials.forEach(m => {
+        m.opacity = 1;
+        m.transparent = false;
+      });
+    });
   }
   return <span {...{onMouseEnter, onMouseLeave, ...props}}>{children}</span>;
 } 
