@@ -142,10 +142,9 @@ export class SceneFace {
       this.solid.cadGroup.add(this.sketch3DGroup);
     }
 
-    const basis = this.basis();
-    const _3dTransformation = new Matrix3().setBasis(basis);
-    //we lost depth or z off in 2d sketch, calculate it again
-    const depth = this.depth();
+    let surface = this.surface();
+    let [u, v] = surface.middle();
+    const _3dTransformation =  surface.tangentPlane(u, v).get3DTransformation();
     const addSketchObjects = (sketchObjects, material, close) => {
       for (let sketchObject of sketchObjects) {
         let line = new THREE.Line(undefined, material);
@@ -153,7 +152,6 @@ export class SceneFace {
         const chunks = sketchObject.approximate(10);
         function addLine(p, q) {
           const lg = line.geometry;
-          chunks[p].z = chunks[q].z = depth;
           const a = _3dTransformation.apply(chunks[p]);
           const b = _3dTransformation.apply(chunks[q]);
 
@@ -172,7 +170,7 @@ export class SceneFace {
   }
 
   findById(sketchObjectId) {
-    return this.sketch3DGroup.children.find(o => o.__TCAD_SketchObject && o.__TCAD_SketchObject.id == sketchObjectId);
+    return this.sketch3DGroup.children.find(o => o.__TCAD_SketchObject && o.__TCAD_SketchObject.id === sketchObjectId);
   }
 
   getSketchObjectVerticesIn3D(sketchObjectId) {
