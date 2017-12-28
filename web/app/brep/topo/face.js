@@ -3,7 +3,7 @@ import {Loop} from './loop'
 import PIP from '../../3d/tess/pip';
 import {NurbsCurve} from "../geom/impl/nurbs";
 import {eqSqTol, veq} from "../geom/tolerance";
-import {isCurveEntersEdgeAtPoint, isCurveEntersEnclose} from "../operations/boolean";
+import {ENCLOSE_CLASSIFICATION, isCurveEntersEdgeAtPoint, isCurveEntersEnclose} from "../operations/boolean";
 
 export class Face extends TopoObject {
 
@@ -50,6 +50,7 @@ export class Face extends TopoObject {
   }
   
   rayCast(pt) {
+
     function vertexResult(vertex) {
       return {
         inside: true,
@@ -61,8 +62,10 @@ export class Face extends TopoObject {
     if (veq(pt, initVertex.point)) {
       return vertexResult(initVertex); 
     }
-    let ray = NurbsCurve.createLinearNurbs(pt, initVertex.point);    
+    let ray = NurbsCurve.createLinearNurbs(pt, initVertex.point);
 
+      // __DEBUG__.AddCurve(ray, 0xffffff);
+  
     for (let edge of this.edges) {
       if (veq(pt, edge.vertexA.point)) {
         return vertexResult(edge.vertexA);
@@ -85,7 +88,16 @@ export class Face extends TopoObject {
         if (ray.passesThrough(v.point) || initVertex === v) {
           let dist = pt.distanceToSquared(v.point);
           if (result === null || dist < result.dist) {
-            let inside = !isCurveEntersEnclose(ray, a, b, true);
+            let inside;
+            
+            if (isCurveEntersEnclose(ray, a, b) === ENCLOSE_CLASSIFICATION.ENTERS) {
+              inside = false;
+            } else if (isCurveEntersEnclose(ray, a, b) === ENCLOSE_CLASSIFICATION.LEAVES) {
+              inside = true;
+            } else {
+              continue;
+            }
+            
             if (inside !== undefined) {
               result = {
                 dist,
@@ -98,9 +110,16 @@ export class Face extends TopoObject {
       }
     }
 
+    // __DEBUG__.Clear();
+    // __DEBUG__.AddPoint(pt, 0xffffff);
+
     for (let edge of this.edges) {
       let intersectionPoints = ray.intersectCurve(edge.edge.curve);
       for (let {p0: ip} of intersectionPoints) {
+        // __DEBUG__.Clear();
+        // __DEBUG__.AddPoint(pt, 0xffffff);
+        //   __DEBUG__.AddPoint(ip, 0xff00ff);
+
         let dist = pt.distanceToSquared(ip);
         if (result === null || (!eqSqTol(dist, result.dist) && dist < result.dist)) {
           let inside = !isCurveEntersEdgeAtPoint(ray, edge, ip);
