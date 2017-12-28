@@ -2,8 +2,11 @@ import {TopoObject} from './topo-object'
 import {Loop} from './loop'
 import PIP from '../../3d/tess/pip';
 import {NurbsCurve} from "../geom/impl/nurbs";
-import {eqSqTol, veq} from "../geom/tolerance";
-import {ENCLOSE_CLASSIFICATION, isCurveEntersEdgeAtPoint, isCurveEntersEnclose} from "../operations/boolean";
+import {eqSqTol, veq, veqNeg} from "../geom/tolerance";
+import {
+  ENCLOSE_CLASSIFICATION, isCurveEntersEdgeAtPoint, isCurveEntersEnclose, isInsideEnclose,
+  isOnPositiveHalfPlaneFromVec
+} from "../operations/boolean";
 
 export class Face extends TopoObject {
 
@@ -51,24 +54,13 @@ export class Face extends TopoObject {
   
   rayCast(pt) {
 
-    function vertexResult(vertex) {
-      return {
-        inside: true,
-        strictInside: false,
-        vertex
-      }
-    }
-    let initVertex = this.getAnyVertex();
-    if (veq(pt, initVertex.point)) {
-      return vertexResult(initVertex); 
-    }
-    let ray = NurbsCurve.createLinearNurbs(pt, initVertex.point);
-
-      // __DEBUG__.AddCurve(ray, 0xffffff);
-  
     for (let edge of this.edges) {
       if (veq(pt, edge.vertexA.point)) {
-        return vertexResult(edge.vertexA);
+        return {
+          inside: true,
+          strictInside: false,
+          vertex: edge.vertexA
+        };
       }
     }
 
@@ -81,57 +73,67 @@ export class Face extends TopoObject {
         }
       }
     }
-    let result = null;
 
-    for (let loop of this.loops) {
-      for (let [a, b, v] of loop.encloses) {
-        if (ray.passesThrough(v.point) || initVertex === v) {
-          let dist = pt.distanceToSquared(v.point);
-          if (result === null || dist < result.dist) {
-            let inside;
-            
-            if (isCurveEntersEnclose(ray, a, b) === ENCLOSE_CLASSIFICATION.ENTERS) {
-              inside = false;
-            } else if (isCurveEntersEnclose(ray, a, b) === ENCLOSE_CLASSIFICATION.LEAVES) {
-              inside = true;
-            } else {
-              continue;
-            }
-            
-            if (inside !== undefined) {
-              result = {
-                dist,
-                inside,
-                strictInside: inside,
-              };
-            }
-          }
+    function closestPointToEdge(edge) {
+      return edge.edge.curve.point(edge.edge.curve.param(pt));
+    }
+    
+    let closest = null;    
+    for (let edge of this.edges) {
+      let closestPoint = closestPointToEdge(edge);
+      let dist = pt.distanceToSquared(closestPoint);
+      if (closest === null || dist < closest.dist) {
+        closest = {dist, pt: closestPoint, edge};
+      }
+    }
+    let enclose = null;
+    function findEnclosure(vertex) {
+      for (let e of closest.edge.loop.encloses) {
+        if (e[2] === vertex) {
+          return e;
         }
       }
     }
+    if (veq(closest.pt, closest.edge.vertexA.point)) {
+      enclose = findEnclosure(closest.edge.vertexA);
+    } else if (veq(closest.pt, closest.edge.vertexB.point)) {
+      enclose = findEnclosure(closest.edge.vertexB);
+    }
 
-    // __DEBUG__.Clear();
-    // __DEBUG__.AddPoint(pt, 0xffffff);
+    let normal = this.surface.normal(closest.pt);
+    let testee = closest.pt.minus(pt)._normalize();
+    let inside;
+    
+    if (enclose !== null) {
 
-    for (let edge of this.edges) {
-      let intersectionPoints = ray.intersectCurve(edge.edge.curve);
-      for (let {p0: ip} of intersectionPoints) {
-        // __DEBUG__.Clear();
-        // __DEBUG__.AddPoint(pt, 0xffffff);
-        //   __DEBUG__.AddPoint(ip, 0xff00ff);
+      let [a, b] = enclose;
+      
+      let inVec = a.tangentAtEnd();
+      let outVec = b.tangentAtStart();
 
-        let dist = pt.distanceToSquared(ip);
-        if (result === null || (!eqSqTol(dist, result.dist) && dist < result.dist)) {
-          let inside = !isCurveEntersEdgeAtPoint(ray, edge, ip);
-          result = {
-            dist,
-            inside,
-            strictInside: inside,
-          }
-        }
+      let coiIn = veqNeg(inVec, testee);
+      let coiOut = veq(outVec, testee);
+
+      if (coiIn && coiOut) {
+        return null;
       }
-    }  
-    return result;    
+
+      let negate = coiIn || coiOut;
+      if (negate) {
+        testee = testee.negate();
+      }
+      let insideEnclose = isInsideEnclose(normal, testee, inVec, outVec);
+      if (negate) {
+        insideEnclose = !insideEnclose;
+      }  
+      inside = !insideEnclose;
+    } else {
+      inside = !isOnPositiveHalfPlaneFromVec(closest.edge.tangent(closest.pt), testee, normal);
+    }
+    return {
+      inside,
+      strictInside: inside,
+    };
   }
 }
 
