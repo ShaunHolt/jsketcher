@@ -523,9 +523,7 @@ function traverseFaces(face, callback) {
     for (let loop of face.loops) {
       for (let halfEdge of loop.halfEdges) {
         let twinFace = halfEdge.twin().loop.face;
-        if (twinFace !== null) {
-          stack.push(twinFace);
-        }
+        stack.push(twinFace);
       }
     }
   }
