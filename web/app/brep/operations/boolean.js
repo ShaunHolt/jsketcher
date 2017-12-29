@@ -1,14 +1,11 @@
 import {BREPValidator} from '../brep-validator';
 import {Edge} from '../topo/edge';
 import {Loop} from '../topo/loop';
-import {edgesGenerator, Shell} from '../topo/shell';
+import {Shell} from '../topo/shell';
 import {Vertex} from '../topo/vertex';
 import {evolveFace} from './evolve-face'
-import PIP from '../../3d/tess/pip';
 import * as math from '../../math/math';
-import {eqEps, eqTol, eqSqTol, TOLERANCE, ueq, veq, veqNeg} from '../geom/tolerance';
-import {Ray} from "../utils/ray";
-import pickPointInside2dPolygon from "../utils/pickPointInPolygon";
+import {eqTol, TOLERANCE, ueq, veq, veqNeg} from '../geom/tolerance';
 import CadError from "../../utils/errors";
 import {createBoundingNurbs} from "../brep-builder";
 import BREP_DEBUG from '../debug/brep-debug';
@@ -25,13 +22,6 @@ const DEBUG = {
   FACE_MERGE: false,
   NOOP: () => {}
 };
-
-const FILTER_STRATEGIES = {
-  RAY_CAST: 'RAY_CAST',
-  NEW_EDGES: 'NEW_EDGES',
-};
-
-const FILTER_STRATEGY = FILTER_STRATEGIES.NEW_EDGES; 
 
 const TYPE = {
   UNION: 'UNION',
@@ -128,7 +118,7 @@ export function BooleanAlgorithm( shellA, shellB, type ) {
     loopsToFaces(faceData.face, faceData.detectedLoops, faces);
   }
 
-  faces = filterFaces(faces, shellA, shellB, type !== TYPE.UNION);
+  faces = filterFaces(faces);
   
   const result = new Shell();
   faces.forEach(face => {
@@ -493,137 +483,7 @@ export function mergeVertices(shell1, shell2) {
   }
 }
 
-function isPointInsideSolid(pt, normal, solid) {
-  let ray = new Ray(pt, normal, normal, 3000);
-  for (let i = 0; i < 1; ++i) {
-    let res = rayCastSolidImpl(ray, solid);
-    if (res !== null) {
-      return res;    
-    }
-    ray.pertrub();
-  }
-  return false; 
-}
-
-function rayCastSolidImpl(ray, solid) {
-  if (DEBUG.RAY_CAST) {
-    __DEBUG__.AddCurve(ray.curve, 0xffffff);  
-  }
-  let closestDistanceSq = -1;
-  let inside = null;
-  let hitEdge = false;
-
-  let edgeDistancesSq = [];
-  for (let e of solid.edges) {
-    let points = e.curve.intersectCurve(ray.curve, TOLERANCE);
-    for (let {p0} of points) {
-      edgeDistancesSq.push(ray.pt.distanceToSquared(p0));
-    }  
-  }
-
-  for (let face of solid.faces) {
-    if (DEBUG.RAY_CAST) {
-      __DEBUG__.AddFace(face, 0xffff00);
-    }
-    let pip = face.data[MY].env2D().pip;
-    function isPointinsideFace(uv, pt) {
-      let wpt = face.surface.createWorkingPoint(uv, pt); 
-      let pipClass = pip(wpt);
-      return pipClass.inside;
-    }
-
-    let originUv = face.surface.param(ray.pt);
-    let originPt = face.surface.point(originUv[0], originUv[1]);
-    if (eqSqTol(0, originPt.distanceToSquared(ray.pt)) && isPointinsideFace(originUv, originPt)) {
-      let normal = face.surface.normalUV(originUv[0], originUv[1]);
-      return normal.dot(ray.normal) > 0;
-    } else {
-      let uvs = face.surface.intersectWithCurve(ray.curve);     
-      for (let uv of uvs) {
-        let normal = face.surface.normalUV(uv[0], uv[1]);
-        let dotPr = normal.dot(ray.dir);
-        if (eqTol(dotPr, 0)) {
-          continue;
-        }
-        let pt = face.surface.point(uv[0], uv[1]);
-        if (isPointinsideFace(uv, pt)) {
-          let distSq = ray.pt.distanceToSquared(pt);
-           if (closestDistanceSq === -1 || distSq < closestDistanceSq) {
-            hitEdge = false; 
-            for (let edgeDistSq of edgeDistancesSq) {
-              if (eqSqTol(edgeDistSq, distSq)) {
-                hitEdge = true;
-              }    
-            }
-            closestDistanceSq = distSq;
-            inside = dotPr > 0;
-          }
-        }
-      } 
-    }
-  }
-
-  if (hitEdge) {
-    return null;
-  }
-
-  if (inside === null) {
-    inside = !!solid.data.inverted
-  }
-  return inside;
-}
-
-function pickPointOnFace(face) {
-  let wp = pickPointInside2dPolygon(face.createWorkingPolygon());
-  if (wp === null) {
-    return null;
-  }
-  return face.surface.workingPointTo3D(wp);
-}
-
-function filterByRayCast(faces, a, b, isIntersection) {
-  
-  let result = [];
-  for (let face of faces) {
-    if (DEBUG.RAY_CAST) {
-      __DEBUG__.Clear();
-      __DEBUG__.AddFace(face, 0x00ff00);
-    }
-
-    let pt = pickPointOnFace(face);
-    if (pt === null) {
-      continue;
-    }
-    
-    let normal = face.surface.normal(pt);
-
-    let insideA = face.data.__origin.shell === a || isPointInsideSolid(pt, normal, a);
-    let insideB = face.data.__origin.shell === b || isPointInsideSolid(pt, normal, b);
-    if (isIntersection) {
-      if (insideA && insideB) {
-        result.push(face);
-      }
-    } else {
-      if (insideA || insideB) {
-        result.push(face);
-      }
-    }
-  }
-  return result;
-}
-
-function filterFaces(faces, a, b, isIntersection) {
-
-  if (FILTER_STRATEGY === FILTER_STRATEGIES.RAY_CAST) {
-    return filterByRayCast(faces, a, b, isIntersection);
-  } else if (FILTER_STRATEGY === FILTER_STRATEGIES.NEW_EDGES) {
-    return filterFacesByNewEdges(faces);
-  } else {
-    throw 'unsupported';
-  }
-}
-
-function filterFacesByNewEdges(faces) {
+function filterFaces(faces) {
   
   function doesFaceContainNewEdge(face) {
     for (let e of face.edges) {
