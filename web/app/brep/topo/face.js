@@ -101,35 +101,20 @@ export class Face extends TopoObject {
     }
 
     let normal = this.surface.normal(closest.pt);
-    let testee = closest.pt.minus(pt)._normalize();
-    let inside;
+    let testee = (enclose ? enclose[2].point : closest.pt).minus(pt)._normalize();
     
+    // __DEBUG__.AddSegment(pt, enclose ? enclose[2].point : closest.pt);
+    
+    let tangent;
     if (enclose !== null) {
-
-      let [a, b] = enclose;
-      
-      let inVec = a.tangentAtEnd();
-      let outVec = b.tangentAtStart();
-
-      let coiIn = veqNeg(inVec, testee);
-      let coiOut = veq(outVec, testee);
-
-      if (coiIn && coiOut) {
-        return null;
-      }
-
-      let negate = coiIn || coiOut;
-      if (negate) {
-        testee = testee.negate();
-      }
-      let insideEnclose = isInsideEnclose(normal, testee, inVec, outVec);
-      if (negate) {
-        insideEnclose = !insideEnclose;
-      }  
-      inside = !insideEnclose;
+      let [ea, eb] = enclose;
+      tangent = ea.tangentAtEnd().plus(eb.tangentAtStart())._normalize();
     } else {
-      inside = !isOnPositiveHalfPlaneFromVec(closest.edge.tangent(closest.pt), testee, normal);
+      tangent = closest.edge.tangent(closest.pt);
     }
+    // __DEBUG__.AddNormal(closest.pt, tangent);
+
+    let inside = !isOnPositiveHalfPlaneFromVec(tangent, testee, normal);
     return {
       inside,
       strictInside: inside,
