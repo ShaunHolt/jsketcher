@@ -345,7 +345,7 @@ function mergeFaces(facesA, facesB, opType) {
         } else if (edgeA.vertexA === edgeB.vertexB) {
 
           invalid.add(edgeA);
-          invalid.add(edgeA);
+          invalid.add(edgeB);
           // markEdgeToReplace(testee, edge.twin());
         } 
       }  
