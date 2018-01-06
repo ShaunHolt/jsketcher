@@ -1,4 +1,4 @@
-import Vector from './vector';
+import Vector from 'math/vector';
 
 var ORIGIN = new Vector(0, 0, 0);
 
@@ -34,6 +34,13 @@ Matrix3.prototype.setBasis = function(basis) {
   this.mxx = b[0].x; this.mxy = b[1].x; this.mxz = b[2].x; this.tx = 0;
   this.myx = b[0].y; this.myy = b[1].y; this.myz = b[2].y; this.ty = 0;
   this.mzx = b[0].z; this.mzy = b[1].z; this.mzz = b[2].z; this.tz = 0;
+  return this;
+};
+
+Matrix3.prototype.scale = function(dx, dy, dz) {
+  this.mxx *= dx;
+  this.myy *= dy;
+  this.mzz *= dz;
   return this;
 };
 

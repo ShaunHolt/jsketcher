@@ -1,5 +1,6 @@
 import * as tk from '../../../../ui/toolkit'
 import {camelCaseSplit} from '../../../../utils/utils'
+import {isTCADError} from "../../../../utils/errors";
 
 export class Wizard {
 
@@ -9,7 +10,7 @@ export class Wizard {
     this.formFields = {};
     this.box = this.createUI(opearation, metadata);
     this.overridingHistory = false;
-    if (initialState != undefined) {
+    if (initialState !== undefined) {
       this.setFormFields(initialState);
     }
   }
@@ -46,6 +47,7 @@ export class Wizard {
     }
     const buttons = new tk.ButtonRow(["Cancel", "OK"], [() => this.cancelClick(), () => this.okClick()]);
     tk.add(folder, buttons);
+    tk.add(folder, {root: $('<div class="errors-message" />')});
     box.root.keydown((e) => {
       switch (e.keyCode) {
         case 27 : this.cancelClick(); break;
@@ -61,12 +63,32 @@ export class Wizard {
   }
 
   okClick() {
-    this.dispose();
-    this.apply();
+    if (this.apply()) {
+      this.dispose();
+    }
   }
 
   apply() {
-    this.app.craft.modify(this.createRequest(), this.overridingHistory);
+    let errors = this.app.craft.modify(this.createRequest(), this.overridingHistory);
+    if (errors) {
+      this.showErrors(errors);
+      return false;
+    } else {
+      return true;
+    }
+  }
+
+  showErrors(error) {
+    this.showErrorText('performing operation with current parameters leads to an invalid object' +
+      '(manifold / self-intersecting / zero-thickness / complete degeneration or unsupported cases)');
+    if (!isTCADError(error)) {
+      console.error('internal error while performing operation');
+      throw error;
+    }
+  }
+
+  showErrorText(message) {
+    this.box.root.find('.errors-message').text(message);  
   }
 
   onUIChange() {}
@@ -100,31 +122,31 @@ export class Wizard {
   }
 
   createFormField(name, label, type, params, initValue) {
-    if (type == 'number') {
+    if (type === 'number') {
       const number = tk.config(new tk.Number(label, initValue, params.step, params.round), params);
       number.input.on('t-change', () => this.onUIChange(name));
       return Field.fromInput(number, Field.TEXT_TO_NUMBER_COERCION);
-    } else if (type == 'choice') {
+    } else if (type === 'choice') {
       const ops = params.options;
       const radio = new tk.InlineRadio(ops, ops, ops.indexOf(initValue));
       radio.root.find('input[type=radio]').on('change', () => {
         this.onUIChange(name);
       });
       return new Field(radio, () => radio.getValue(), (v) => radio.setValue(v));
-    } else if (type == 'face') {
-      return selectionWidget(name, label, initValue, this.app.viewer.selectionMgr, (selection) => selection.id);
-    } else if (type == 'sketch.segment') {
-      return selectionWidget(name, label, initValue, this.app.viewer.sketchSelectionMgr, (selection) => selection.__TCAD_SketchObject.id);
+    } else if (type === 'face') {
+      return selectionWidget(name, label, initValue, this.app.context.bus, 'selection:face',(selection) => selection.id);
+    } else if (type === 'sketch.segment') {
+      return selectionWidget(name, label, initValue, this.app.context.bus, 'selection:sketchObject', (selection) => selection.__TCAD_SketchObject.id);
     }
   }
 }
 
-function selectionWidget(name, label, initValue, selectionManager, toId) {
+function selectionWidget(name, label, initValue, bus, selectionKey, toId) {
   const obj = new tk.Text(label, initValue);
   obj.input.on('change', () => this.onUIChange(name));
   return Field.fromInput(obj, undefined, (objId) => {
     if (objId === CURRENT_SELECTION) {
-      let selection = selectionManager.selection[0];
+      let selection = bus.state[selectionKey][0];
       return selection ?  toId(selection) : '';
     } else {
       return objId;

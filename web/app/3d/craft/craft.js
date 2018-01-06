@@ -12,8 +12,8 @@ export function Craft(app) {
       if (this._historyPointer === value) return;
       this._historyPointer = value;
       this.reset(this.history.slice(0, this._historyPointer));
-      this.app.bus.notify('craft');
-      this.app.bus.notify('historyPointer');
+      this.app.bus.dispatch('craft');
+      this.app.bus.dispatch('historyPointer');
       this.app.viewer.render();
     }
   });
@@ -30,7 +30,7 @@ Craft.prototype.remove = function(modificationIndex) {
   if (this.historyPointer >= history.length) {
     this.finishHistoryEditing();
   } else {
-    this.app.bus.notify('historyShrink');
+    this.app.bus.dispatch('historyShrink');
   }
 };
 
@@ -38,8 +38,8 @@ Craft.prototype.loadHistory = function(history) {
   this.history = history;
   this._historyPointer = history.length;
   this.reset(history);
-  this.app.bus.notify('craft');
-  this.app.bus.notify('historyPointer');
+  this.app.bus.dispatch('craft');
+  this.app.bus.dispatch('historyPointer');
   this.app.viewer.render();
 };
 
@@ -67,7 +67,12 @@ Craft.prototype.modifyInternal = function(request) {
   var op = this.operations[request.type];
   if (!op) return;
 
-  const result = op(this.app, request.params);
+  let result;
+  try {
+    result = op(this.app, request.params);
+  } catch(err) {
+    return err;
+  }
 
   for (let solid of result.outdated) {
     solid.vanish();
@@ -82,20 +87,23 @@ Craft.prototype.modifyInternal = function(request) {
     this.app.viewer.workGroup.add(solid.cadGroup);
   }
 
-  this.app.bus.notify('solid-list', {
+  this.app.bus.dispatch('solid-list', {
     solids: this.solids,
     needRefresh: result.created
   });
 };
 
 Craft.prototype.modify = function(request, overriding) {
-  this.modifyInternal(request);
+  let errors = this.modifyInternal(request);
+  if (errors !== undefined) {
+    return errors;
+  }
   if (!overriding && this._historyPointer != this.history.length) {
     this.history.splice(this._historyPointer + 1, 0, null);
   }
   this.history[this._historyPointer] = request;
   this._historyPointer ++;
-  this.app.bus.notify('craft');
-  this.app.bus.notify('historyPointer');
+  this.app.bus.dispatch('craft');
+  this.app.bus.dispatch('historyPointer');
   this.app.viewer.render();
 };

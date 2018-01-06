@@ -1,9 +1,9 @@
 import {CURRENT_SELECTION as S} from './wizard'
 import {PreviewWizard, SketchBasedPreviewer} from './preview-wizard'
 import {getEncloseDetails} from '../cut-extrude'
-import {TriangulatePolygons} from '../../../triangulation'
-import Vector from '../../../../math/vector'
-import {reversedIndex} from '../../../../utils/utils'
+import {TriangulatePolygons} from '../../../tess/triangulation'
+import Vector from 'math/vector';
+import {curveTessParams} from "../../../../brep/geom/impl/curve/curve-tess";
 
 
 const METADATA = [
@@ -24,7 +24,7 @@ export class CutWizard extends PreviewWizard {
   }
 
   uiLabel(name) {
-    if ('value' == name) return 'depth';
+    if ('value' === name) return 'depth';
     return super.uiLabel(name);
   }
 }
@@ -39,7 +39,7 @@ export class ExtrudeWizard extends PreviewWizard {
   }
 
   uiLabel(name) {
-    if ('value' == name) return 'height';
+    if ('value' === name) return 'height';
     return super.uiLabel(name);
   }
 }
@@ -52,23 +52,36 @@ export class ExtrudePreviewer extends SketchBasedPreviewer {
   }
 
   createImpl(app, params, sketch, face) {
-    const encloseDetails = getEncloseDetails(params, sketch, face.surface(), !this.inversed, true);
+    const encloseDetails = getEncloseDetails(params, sketch, face.surface().tangentPlane(0, 0), !this.inversed);
     const triangles = [];
-    for (let d of encloseDetails) {
-      const base = d.basePath.points;
-      const lid = d.lidPath.points;
-      const n = base.length;
-      for (let p = n - 1, q = 0; q < n; p = q ++) {
-        triangles.push([ base[p], base[q], lid[q] ]);
-        triangles.push([ lid[q], lid[p], base[p] ]);
+
+    for (let {basePath, lidPath, baseSurface, lidSurface} of encloseDetails) {
+      const basePoints = [];
+      const lidPoints = [];
+      for (let i = 0; i < basePath.length; ++i) {
+        let baseNurbs = basePath[i];    
+        let lidNurbs = lidPath[i];  
+        
+        let tessCurve = params.prism > 1 ? lidNurbs : baseNurbs;
+        
+        const us = curveTessParams(tessCurve.impl, tessCurve.uMin, tessCurve.uMax);
+        const base = us.map(u => baseNurbs.point(u));
+        const lid = us.map(u => lidNurbs.point(u));
+        const n = base.length;
+        for (let p = n - 1, q = 0; q < n; p = q ++) {
+          triangles.push([ base[p], base[q], lid[q] ]);
+          triangles.push([ lid[q], lid[p], base[p] ]);
+        }
+        base.forEach(p => basePoints.push(p));
+        lid.forEach(p => lidPoints.push(p));
       }
 
       function collectOnSurface(points, normal) {
         TriangulatePolygons([points], normal, (v) => v.toArray(), (arr) => new Vector().set3(arr))
           .forEach(tr => triangles.push(tr));
       }
-      collectOnSurface(base, d.baseSurface.normal);
-      collectOnSurface(lid, d.lidSurface.normal);
+      collectOnSurface(basePoints, baseSurface.normal);
+      collectOnSurface(lidPoints, lidSurface.normal);
     }
     return triangles;
   }

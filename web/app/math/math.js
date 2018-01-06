@@ -1,7 +1,8 @@
-import Vector from './vector'
+import Vector from 'math/vector';
 import BBox from './bbox'
 
 export const TOLERANCE = 1E-6;
+export const TOLERANCE_SQ = TOLERANCE * TOLERANCE;
 
 export function distanceAB(a, b) {
   return distance(a.x, a.y, b.x, b.y);
@@ -18,10 +19,23 @@ export function distanceAB3(a, b) {
 }
 
 export function distance3(x1, y1, z1, x2, y2, z2) {
+  return Math.sqrt(distanceSquared3(x1, y1, z1, x2, y2, z2));
+}
+
+export function distanceSquaredAB3(a, b) {
+  return distanceSquared3(a.x, a.y, a.z, b.x, b.y, b.z);
+}
+
+export function distanceSquaredANegB3(a, b) {
+  return distanceSquared3(a.x, a.y, a.z, -b.x, -b.y, -b.z);
+}
+
+
+export function distanceSquared3(x1, y1, z1, x2, y2, z2) {
   var dx = x1 - x2;
   var dy = y1 - y2;
   var dz = z1 - z2;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  return dx * dx + dy * dy + dz * dz;
 }
 
 export function circleFromPoints(p1, p2, p3) {
@@ -52,14 +66,20 @@ export function areEqual(v1, v2, tolerance) {
   return Math.abs(v1 - v2) < tolerance;
 }
 
-export function areVectorsEqual(v1, v2, tolerance) {
-  return areEqual(v1.x, v2.x, tolerance) &&
-         areEqual(v1.y, v2.y, tolerance) &&
-         areEqual(v1.z, v2.z, tolerance);
+export function areVectorsEqual(v1, v2, toleranceSQ) {
+  return areEqual(distanceSquaredAB3(v1, v2), 0, toleranceSQ);
+}
+
+export function areNegVectorsEqual(v1, v2, toleranceSQ) {
+  return areEqual(distanceSquaredANegB3(v1, v2), 0, toleranceSQ);
+}
+
+export function areVectorsEqual3(v1, v2, toleranceSQ) {
+  return areEqual(distanceSquared3(v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]), 0, toleranceSQ);
 }
 
 export function vectorsEqual(v1, v2) {
-  return areVectorsEqual(v1, v2, TOLERANCE);
+  return areVectorsEqual(v1, v2, TOLERANCE_SQ);
 }
 
 export function equal(v1, v2) {

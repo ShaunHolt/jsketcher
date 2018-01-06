@@ -1,4 +1,4 @@
-import Vector from '../../../math/vector'
+import Vector from 'math/vector';
 import * as cad_utils from '../../cad-utils'
 import * as math from '../../../math/math'
 import {LUT} from '../../../math/bezier-cubic'
@@ -7,7 +7,7 @@ import {HashTable} from '../../../utils/hashmap'
 import {Mesh} from '../../mesh'
 import {LoadSTLFromURL} from '../../io'
 import revolve from './revolve'
-import {Triangulate} from '../../triangulation'
+import {Triangulate} from '../../tess/triangulation'
 
 export function sortPolygons(polygons) {
   function Loop(polygon) {

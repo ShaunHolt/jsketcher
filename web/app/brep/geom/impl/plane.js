@@ -2,7 +2,7 @@ import {Surface} from '../surface'
 import {Point} from '../point'
 import {Line} from './line'
 import {Matrix3, AXIS, BasisForPlane} from  '../../../math/l3space'
-import * as math from  '../../../math/math'
+import {eqTol, veq} from "../tolerance";
 
 export class Plane extends Surface {
 
@@ -10,10 +10,6 @@ export class Plane extends Surface {
     super();
     this.normal = normal;
     this.w = w;
-  }
-
-  isCognateCurve(curve) {
-    return curve.constructor.name == 'Line';
   }
 
   calculateBasis() {
@@ -50,21 +46,20 @@ export class Plane extends Surface {
     if (!this.__3dTr) {
       const basis = new Matrix3().setBasis(this.basis());
       const translate = new Matrix3();
-      translate.tz = this.w
+      translate.tz = this.w;
       this.__3dTr = basis.combine(translate);
 //      this.__3dTr.tz = this.w;
     }
     return this.__3dTr;
   }
 
-  coplanarUnsignedForSameClass(other, tol) {
-    return math.areVectorsEqual(this.normal.multiply(this.w), other.normal.multiply(other.w), tol);
-    //TODO: store this.normal.multiply(this.w) in a field since it's constant value
+  coplanarUnsigned(other) {
+    return veq(this.normal.multiply(this.w), other.normal.multiply(other.w));
   }
 
-  equalsForSameClass(other, tol) {
-    return math.areVectorsEqual(this.normal, other.normal, tol) &&
-           math.areEqual(this.w, other.w, tol);
+  equalsForSameClass(other) {
+    return veq(this.normal, other.normal) &&
+           eqTol(this.w, other.w);
   }
 
   toParametricForm() {
@@ -91,17 +86,17 @@ export class Plane extends Surface {
     return [Number.MIN_VALUE, Number.MAX_VALUE];
   }
 
-  classifyCognateCurve(line, tol) {
-    const parallel = math.areEqual(line.v.dot(this.normal), 0, tol);
-    const pointOnPlane = math.areEqual(this.normal.dot(line.p0), this.w, tol);
-    return {
-      hit: !parallel || pointOnPlane,
-      parallel
-    }
+  tangentPlane() {
+    return this;
   }
 }
 
+Plane.prototype.TYPE = 'plane';
 Plane.prototype.isPlane = true;
+
+Plane.XY = new Plane(AXIS.Z, 0);
+Plane.XZ = new Plane(AXIS.Y, 0);
+Plane.YZ = new Plane(AXIS.X, 0);
 
 class ParametricPlane {
 

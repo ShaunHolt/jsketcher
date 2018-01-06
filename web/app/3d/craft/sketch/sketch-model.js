@@ -1,6 +1,4 @@
-import {CompositeCurve} from '../../../brep/geom/curve'
-import {ApproxCurve} from '../../../brep/geom/impl/approx'
-import {NurbsCurve} from '../../../brep/geom/impl/nurbs'
+import {NurbsCurve, NurbsCurveImpl} from '../../../brep/geom/impl/nurbs'
 import {Point} from '../../../brep/geom/point'
 import {Line} from '../../../brep/geom/impl/line'
 import {LUT} from '../../../math/bezier-cubic'
@@ -8,6 +6,7 @@ import {isCCW} from '../../../math/math'
 import {AXIS} from '../../../math/l3space'
 import {distanceAB, makeAngle0_360} from '../../../math/math'
 import verb from 'verb-nurbs'
+import {normalizeCurveEnds} from "../../../brep/geom/impl/nurbs-ext";
 
 const RESOLUTION = 20;
 
@@ -38,7 +37,11 @@ class SketchPrimitive {
     if (this.inverted) {
       verbNurbs = verbNurbs.reverse();
     }
-    return new NurbsCurve(verbNurbs);
+    let data = verbNurbs.asNurbs();
+    normalizeCurveEnds(data);
+    verbNurbs = new verb.geom.NurbsCurve(data);
+
+    return new NurbsCurve(new NurbsCurveImpl(verbNurbs));
   }
 
   toVerbNurbs(plane, _3dtr) {
@@ -224,16 +227,6 @@ export class Ellipse extends SketchPrimitive {
   }
 }
 
-const USE_APPROX_FOR = new Set();
-//USE_APPROX_FOR.add('Arc');
-
-const USE_NURBS_FOR = new Set();
-USE_NURBS_FOR.add('Arc');
-USE_NURBS_FOR.add('Circle');
-//USE_NURBS_FOR.add('Ellipse');
-//USE_NURBS_FOR.add('EllipticalArc');
-//USE_NURBS_FOR.add('BezierCurve');
-
 export class Contour {
 
   constructor() {
@@ -244,7 +237,7 @@ export class Contour {
     this.segments.push(obj);
   }
 
-  transferOnSurface(surface, forceApproximation) {
+  approximateOnSurface(surface) {
     const cc = new CompositeCurve();
     const tr = to3DTrFunc(surface);
 
@@ -265,19 +258,27 @@ export class Contour {
         approximation[n - 1] = firstPoint;
       }
 
-      if (!forceApproximation && USE_APPROX_FOR.has(segment.constructor.name)) {
-        cc.add(new ApproxCurve(approximation, segment), prev, segment);
-        prev = approximation[n - 1];
-      } else if (!forceApproximation && USE_NURBS_FOR.has(segment.constructor.name)) {
-        cc.add(segment.toNurbs(surface), prev, segment);
-        prev = approximation[n - 1];
-      } else {
-        for (let i = 1; i < n; ++i) {
-          const curr = approximation[i];
-          cc.add(new Line.fromSegment(prev, curr), prev, segment);
-          prev = curr;
-        }
-      }
+      cc.add(segment.toNurbs(surface), prev, segment);
+      prev = approximation[n - 1];
+
+      //It might be an optimization for segments
+      // for (let i = 1; i < n; ++i) {
+      //   const curr = approximation[i];
+      //   cc.add(new Line.fromSegment(prev, curr), prev, segment);
+      //   prev = curr;
+      // }
+    }
+    return cc;
+  }
+
+  transferOnSurface(surface) {
+    const cc = [];
+
+    let prev = null;
+    let firstPoint = null;
+    for (let segIdx = 0; segIdx < this.segments.length; ++segIdx) {
+      let segment = this.segments[segIdx];
+      cc.push(segment.toNurbs(surface));
     }
     return cc;
   }
@@ -310,3 +311,19 @@ function to3DTrFunc(surface) {
     return _3dTransformation.apply(v);
   }
 }
+
+class CompositeCurve {
+
+  constructor() {
+    this.curves = [];
+    this.points = [];
+    this.groups = [];
+  }
+
+  add(curve, point, group) {
+    this.curves.push(curve);
+    this.points.push(point);
+    this.groups.push(group);
+  }
+}
+

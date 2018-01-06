@@ -1,5 +1,6 @@
 import * as BREPPrimitives from '../brep/brep-primitives'
-import * as BREPBuilder from '../brep/brep-builder'
+import BrepBuilder, {createBoundingNurbs} from '../brep/brep-builder'
+import {createPrism} from '../brep/brep-enclose'
 import * as BREPBool from '../brep/operations/boolean'
 import * as IO from '../brep/brep-io'
 import {BREPValidator} from '../brep/brep-validator'
@@ -9,17 +10,20 @@ import {Face} from '../brep/topo/face';
 import {Shell} from '../brep/topo/shell';
 import {Vertex} from '../brep/topo/vertex';
 import {Point} from '../brep/geom/point';
-import {NurbsCurve} from '../brep/geom/impl/nurbs';
+import {NurbsCurve, NurbsSurface} from '../brep/geom/impl/nurbs';
 import {Plane} from '../brep/geom/impl/plane';
+import pip from "./tess/pip";
 
 export default {
   brep: {
-    builder: BREPBuilder,
+    builder: BrepBuilder,
+    createPrism,
     primitives: BREPPrimitives,
     bool: BREPBool,
+    pip,
     validator: BREPValidator,
     geom: {
-      Point, NurbsCurve, Plane
+      Point, NurbsCurve, Plane, NurbsSurface, createBoundingNurbs
     },
     topo: {
       HalfEdge, Edge, Loop, Face, Shell, Vertex

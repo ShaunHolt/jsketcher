@@ -1,7 +1,7 @@
 import * as tk from '../../../../ui/toolkit.js'
 import * as workbench from '../workbench'
 import * as cad_utils from '../../../cad-utils'
-import Vector from '../../../../math/vector'
+import Vector from 'math/vector';
 import {Matrix3, ORIGIN} from '../../../../math/l3space'
 import {revolveToTriangles} from '../revolve'
 import {OpWizard, IMAGINARY_SURFACE_MATERIAL, } from './wizard-commons'
@@ -16,7 +16,7 @@ export function RevolveWizard(app, face, initParams) {
   this.synch();
   this.autoResoltion = true;
   this.selectionListener = () => {
-    const object = this.app.viewer.sketchSelectionMgr.selection[0];
+    const object = this.app.getFirstSelectedFace();
     if (canBePivot(object, this.face)) {
       this.ui.pivotSketchObjectId.input.val(object.__TCAD_SketchObject.id);
       this.synch();
@@ -31,7 +31,7 @@ function canBePivot(sketchObject, face) {
 
 function findDefaultAxis(app, face) {
   let line;
-  const preSelected = app.viewer.sketchSelectionMgr.selection[0];
+  const preSelected = app.getFirstSelectedFace();
   if (canBePivot(preSelected, face)) {
     line = preSelected;
   } else {
@@ -145,7 +145,7 @@ RevolveWizard.prototype.createRequest = function(done) {
 };
 
 RevolveWizard.prototype.dispose = function() {
-  this.app.bus.unsubscribe('selection-sketch-object', this.selectionListener);
+  this.app.bus.unSubscribe('selection-sketch-object', this.selectionListener);
   OpWizard.prototype.dispose.call(this);
 };
 

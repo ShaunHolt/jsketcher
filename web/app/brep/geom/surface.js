@@ -6,43 +6,17 @@ export class Surface {
   }
 
   //--------------------------------------------------------------------------------------------------------------------
-
-  classifyCognateCurve(curve, tol) {
-    throw 'not implemented';
-  }
-
-  classifyCurve(curve, tol) {
-    if (this.isCognateCurve(curve)) {
-      return this.classifyCognateCurve(curve, tol)
-    }
-    return this.toNurbs().classifyCognateCurve(curve.toNurbs(), tol);
-  };
-
-  //--------------------------------------------------------------------------------------------------------------------
   
-  intersectForSameClass() {
+  intersectSurfaceForSameClass() {
     throw 'not implemented';
   }
   
-  intersect(other, tol) {
+  intersectSurface(other, tol) {
     if (this.isSameClass(other)) {
-      return this.intersectForSameClass(other, tol)
+      return this.intersectSurfaceForSameClass(other, tol)
     }
-    return this.toNurbs().intersectForSameClass(other.toNurbs(), tol);
+    return this.toNurbs().intersectSurfaceForSameClass(other.toNurbs(), tol);
   };
-
-  //--------------------------------------------------------------------------------------------------------------------
-
-  coplanarUnsignedForSameClass(other, tol) {
-    throw 'not implemented';
-  }
-
-  coplanarUnsigned(other, tol) {
-    if (this.isSameClass(other)) {
-      return this.coplanarUnsignedForSameClass(other, tol)
-    }
-    return this.toNurbs().coplanarUnsignedForSameClass(other.toNurbs());
-  }
 
   //--------------------------------------------------------------------------------------------------------------------
 
@@ -59,16 +33,16 @@ export class Surface {
 
   //--------------------------------------------------------------------------------------------------------------------
 
+  normal(point) {
+    throw 'not implemented';
+  }
+
   toNurbs() {
     throw 'not implemented';
   }
 
   isSameClass(other) {
-    return this.constructor.name == other.constructor.name;
-  }
-
-  isCognateCurve(curve) {
-    return false;
+    return this.constructor.name === other.constructor.name;
   }
 }
 Surface.prototype.isPlane = false;

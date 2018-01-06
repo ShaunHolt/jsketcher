@@ -1,9 +1,9 @@
 import {CURRENT_SELECTION as S} from './wizard'
 import {PreviewWizard, SketchBasedNurbsPreviewer } from './preview-wizard'
-import {TriangulatePolygons} from '../../../triangulation'
+import {TriangulatePolygons} from '../../../tess/triangulation'
 import {revolveToWallNurbs} from '../../../../brep/brep-builder'
 import {evalPivot} from '../revolve'
-import Vector from '../../../../math/vector'
+import Vector from 'math/vector';
 
 const METADATA = [
   ['angle'   , 'number',  5, {min: -360, max: 360, step: 10}],
@@ -29,7 +29,7 @@ export class RevolvePreviewer extends SketchBasedNurbsPreviewer {
     const nurbses = [];
     const contours = sketch.fetchContours();
     for (let contour of contours) {
-      const basePath = contour.transferOnSurface(surface);
+      const basePath = contour.approximateOnSurface(surface);
       revolveToWallNurbs(basePath, surface, pivot.p0, pivot.v, params.angle).forEach(nurbs => nurbses.push(nurbs));
     }
     return nurbses;
